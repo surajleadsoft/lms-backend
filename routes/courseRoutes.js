@@ -16,7 +16,7 @@ router.post('/insert', async (req, res) => {
 
 router.get('/get', async (req, res) => {
     try {      
-      const courses = Course.find();
+      const courses = await Course.find();
       res.status(201).json({ success: true, data: courses });
     } catch (error) {
       res.status(400).json({ success: false, message: error.message });
