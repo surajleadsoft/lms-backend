@@ -23,6 +23,26 @@ router.get('/get', async (req, res) => {
     }
 });
 
+router.get('/courses-with-count', async (req, res) => {
+  try {
+    const courses = await Course.find();
+    const courseData = await Promise.all(
+      courses.map(async (course) => {
+        const count = await Student.countDocuments({ 'basic.courseName': course.courseName });
+        return {
+          courseName: course.courseName,
+          SrNo: course.SrNo,
+          studentCount: count
+        };
+      })
+    );
+
+    res.status(200).json({ success: true, data: courseData });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
 // PUT: Update course name by SrNo
 router.put('/update/:srNo', async (req, res) => {
   try {
