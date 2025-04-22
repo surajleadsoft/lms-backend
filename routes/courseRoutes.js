@@ -21,7 +21,7 @@ router.get('/get', async (req, res) => {
     } catch (error) {
       res.status(400).json({ success: false, message: error.message });
     }
-  });
+});
 
 // PUT: Update course name by SrNo
 router.put('/update/:srNo', async (req, res) => {

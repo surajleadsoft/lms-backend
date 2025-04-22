@@ -7,7 +7,7 @@ const academicSchema = new mongoose.Schema({
   marksCategory: String,
   Marks: String,
   status:String,
-  yearOfCompletion: String,
+  yearOfCompletion: String,  
 });
 
 const certificationSchema = new mongoose.Schema({
@@ -30,7 +30,8 @@ const studentSchema = new mongoose.Schema({
     City: String,
     mobileNo: { type: String, required: true },
     password: { type: String, default: 'LeadSoft@123' },
-    isActive:{ type:Boolean,default:true }
+    isActive:{ type:Boolean,default:true },
+    courses:{type:String,required:true}
   },
   parent: {
     motherFullname: String,
