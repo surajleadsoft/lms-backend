@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Course = require('../models/Course');
+const Student = require('../models/Student')
 
 // POST: Insert new course
 router.post('/insert', async (req, res) => {
