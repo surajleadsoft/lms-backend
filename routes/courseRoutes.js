@@ -33,7 +33,8 @@ router.get('/courses-with-count', async (req, res) => {
         return {
           courseName: course.courseName,
           SrNo: course.SrNo,
-          studentCount: count
+          studentCount: count,
+          updatedAt:course.updatedAt
         };
       })
     );
