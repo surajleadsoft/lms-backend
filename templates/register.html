@@ -12,13 +12,13 @@
             color: #333333;
             margin: 0;
             padding: 0;
-            background-color: #f7f7f7;
+            background-color: #333;
         }
         .container {
             max-width: 600px;
             margin: 0 auto;
             padding: 20px;
-            background: #ffffff;
+            background: white;
             border-radius: 8px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
@@ -36,7 +36,7 @@
         .button {
             display: inline-block;
             padding: 12px 24px;
-            background-color: #4CAF50;
+            background-color: blueviolet;
             color: white !important;
             text-decoration: none;
             border-radius: 4px;
@@ -66,13 +66,13 @@
 <body>
     <div class="container">
         <div class="header">
-            <img src="https://leadsoft.academy/Assets/Images/Logo.png" alt="Company Logo">
+            <img src="https://leadsoft.academy/Assets/Images/logo_1.png" alt="Company Logo">
             <h1>Welcome to {{courseName}}!</h1>
         </div>
 
         <div class="content">
             <p>Dear {{studentName}},</p>
-            <p>You have successfully registered for <strong>{{courseName}}</strong>. Here are your login credentials:</p>
+            <p>You have successfully registered for <strong style="color:darkorange">{{courseName}}</strong>. Here are your login credentials:</p>
             
             <div style="background: #f9f9f9; padding: 15px; border-radius: 5px; margin: 15px 0;">
                 <p><strong>Login URL:</strong> <a href="{{loginUrl}}">{{loginUrl}}</a></p>
@@ -89,12 +89,12 @@
 
             <a href="{{loginUrl}}" class="button">Login to Your Account</a>
 
-            <p>If you have any questions, please contact our support team at <a href="mailto:support@yourplatform.com">support@yourplatform.com</a>.</p>
+            <p>If you have any questions, please contact our support team at <a href="mailto:suraj.leadsoft@gmail.com">support@yourplatform.com</a>.</p>
             <p>Happy learning!</p>
         </div>
 
         <div class="footer">
-            <p>&copy; {{currentYear}} Your Platform Name. All rights reserved.</p>
+            <p>&copy; {{currentYear}} LeadSoft Placement Academy. All rights reserved.</p>
             <p>
                 <a href="{{privacyPolicyUrl}}">Privacy Policy</a> | 
                 <a href="{{termsUrl}}">Terms of Service</a>

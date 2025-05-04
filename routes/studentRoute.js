@@ -3,8 +3,9 @@ const router = express.Router();
 const Student = require('../models/Student');
 const nodemailer = require('nodemailer');
 const Course = require('../models/Course')
-const hbs = require('nodemailer-express-handlebars');
 const path = require('path');
+const fs = require('fs');
+
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -14,51 +15,79 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Handlebars template engine setup
-transporter.use('compile', hbs({
-  viewEngine: {
-    partialsDir: path.resolve('../templates'),
-    defaultLayout: false,
-  },
-  viewPath: path.resolve('../templates/'),
-  extName: '.handlebars',
-}));
+const loadTemplate = () => {
+  const filePath = path.join(__dirname, '../templates', 'register.html');
+  return fs.readFileSync(filePath, 'utf-8');
+};
+
+const populateTemplate1 = (template, data) => {
+  return template
+    .replace(/{{studentName}}/g, data.studentName)
+    .replace(/{{courseName}}/g, data.courseName)
+    .replace(/{{studentEmail}}/g, data.studentEmail)
+    .replace(/{{studentPassword}}/g, data.studentPassword)
+    .replace(/{{loginUrl}}/g, 'https://www.courses.leadsoft.academy')
+    .replace(/{{startDate}}/g, data.startDate)
+    .replace(/{{instructorName}}/g, data.instructorName)
+    .replace(/{{courseDuration}}/g, data.courseDuration)
+    .replace(/{{privacyPolicyUrl}}/g, 'https://www.courses.leadsoft.academy')
+    .replace(/{{termsUrl}}/g, 'https://www.courses.leadsoft.academy')
+    .replace(/{{currentYear}}/g, new Date().getFullYear());
+};
 
 const sendEmail = async (toEmail, data) => {
+  // const mailOptions = {
+  //   from: '"LeadSoft Placement Academy" <no-reply@leadsoft.academy>',
+  //   to: toEmail,
+  //   subject: 'Course Registration Confirmation',
+  //   template: 'register',
+  //   context: {
+  //     studentName: data.studentName,
+  //     courseName: data.courseName,
+  //     studentEmail: data.studentEmail,
+  //     studentPassword: data.studentPassword,
+  //     loginUrl: data.loginUrl,
+  //     startDate: data.startDate,
+  //     instructorName: data.instructorName,
+  //     courseDuration: data.courseDuration,
+  //     currentYear: new Date().getFullYear(),
+  //     privacyPolicyUrl: data.privacyPolicyUrl || 'https://yourdomain.com/privacy',
+  //     termsUrl: data.termsUrl || 'https://yourdomain.com/terms',
+  //   },
+  // };
+
+  // try {
+  //   const info = await transporter.sendMail(mailOptions);
+  //   console.log('Email sent: ' + info.response);
+  //   return true
+    
+  // } catch (err) {
+  //   console.error('Error sending email:', err);
+  //   return false
+    
+  // }
+  const rawTemplate = loadTemplate();
+  const html = populateTemplate1(rawTemplate, data);
+
   const mailOptions = {
-    from: '"LeadSoft Placement Academy" <no-reply@leadsoft.academy>',
+    from: `"LeadSoft Placement Academy" <no-reply@leadsoft.academy>`,
     to: toEmail,
-    subject: 'Course Registration Confirmation',
-    template: 'register',
-    context: {
-      studentName: data.studentName,
-      courseName: data.courseName,
-      studentEmail: data.studentEmail,
-      studentPassword: data.studentPassword,
-      loginUrl: data.loginUrl,
-      startDate: data.startDate,
-      instructorName: data.instructorName,
-      courseDuration: data.courseDuration,
-      currentYear: new Date().getFullYear(),
-      privacyPolicyUrl: data.privacyPolicyUrl || 'https://yourdomain.com/privacy',
-      termsUrl: data.termsUrl || 'https://yourdomain.com/terms',
-    },
+    subject: '🚀 LeadSoft Placement Academy - Course Registration Confirmation 🎯',
+    html,
   };
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent: ' + info.response);
+    console.log('✅ Email sent:', info.response);
     return true
-    
-  } catch (err) {
-    console.error('Error sending email:', err);
+  } catch (error) {
+    console.error('❌ Failed to send email:', error.message);
     return false
-    
   }
 };
 const getCourseInfo =async(courseName) => {
   try {      
-    const courseName = courseName 
+    
     const courses = await Course.find({courseName});
     return courses[0];
   } catch (error) {
@@ -78,20 +107,21 @@ router.post('/student/basic', async (req, res) => {
       { upsert: true, new: true }
     );
     const courseData =await getCourseInfo(basicData.courseName)
+    console.log(courseData)
     const data={
       studentName: `${basicData.firstName} ${basicData.middleName} ${basicData.lastName}`,
       courseName: basicData.courseName,
-      studentEmail: basicData.emailAddress,
+      studentEmail: emailAddress,
       studentPassword: 'LeadSoft@123',
       loginUrl: 'https://www.courses.leadsoft.academy',
-      startDate: courseData.startDate,
+      startDate: new Date(courseData.startDate).toLocaleDateString(),
       instructorName: courseData.instructorName,
-      courseDuration: courseData.courseDuration,
+      courseDuration: courseData.duration,
       currentYear: new Date().getFullYear(),
-      privacyPolicyUrl: basicData.privacyPolicyUrl || 'https://yourdomain.com/privacy',
-      termsUrl: basicData.termsUrl || 'https://yourdomain.com/terms',
+      privacyPolicyUrl: basicData.privacyPolicyUrl || 'https://leadsoft.academy/privacy',
+      termsUrl: basicData.termsUrl || 'https://leadsoft.academy/terms',
     }
-    console.log(await sendEmail(basicData.emailAddress,data))
+    console.log(await sendEmail(data.studentEmail,data))
     res.json(student);
   } catch (err) {
     res.status(500).json({ message: err.message });
