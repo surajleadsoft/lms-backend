@@ -24,6 +24,16 @@ router.get('/get', async (req, res) => {
     }
 });
 
+router.get('/get/:courseName', async (req, res) => {
+  try {      
+    const courseName = req.params.courseName 
+    const courses = await Course.find({courseName});
+    res.status(201).json({ success: true, data: courses });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
 router.get('/courses-with-count', async (req, res) => {
   try {
     const courses = await Course.find();
