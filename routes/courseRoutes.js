@@ -6,8 +6,8 @@ const Student = require('../models/Student')
 // POST: Insert new course
 router.post('/insert', async (req, res) => {
   try {
-    const { courseName,courseFees } = req.body;
-    const course = new Course({ courseName,courseFees });
+    const { courseName,courseFees,startDate,instructorName,duration } = req.body;
+    const course = new Course({ courseName,courseFees,startDate,instructorName,duration });
     await course.save();
     res.status(201).json({ success: true, message: 'Course inserted', data: course });
   } catch (error) {

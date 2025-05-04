@@ -11,6 +11,18 @@ const courseSchema = new mongoose.Schema({
   courseFees:{
     type:Number,
     required:true
+  },
+  startDate:{
+    type:Date,
+    required:true
+  },
+  instructorName:{
+    type:String,
+    required:true
+  },
+  duration:{
+    type:String,
+    required:true
   }
 }, {
   timestamps: true
