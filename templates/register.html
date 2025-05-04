@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Registration Confirmation</title>
+    <style>
+        /* Base Styles */
+        body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333333;
+            margin: 0;
+            padding: 0;
+            background-color: #f7f7f7;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 1px solid #eeeeee;
+        }
+        .header img {
+            max-width: 150px;
+        }
+        .content {
+            padding: 20px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #4CAF50;
+            color: white !important;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 12px;
+            color: #999999;
+            border-top: 1px solid #eeeeee;
+        }
+        /* Responsive Adjustments */
+        @media only screen and (max-width: 600px) {
+            .container {
+                width: 100%;
+                border-radius: 0;
+            }
+            .button {
+                display: block;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="https://leadsoft.academy/Assets/Images/Logo.png" alt="Company Logo">
+            <h1>Welcome to {{courseName}}!</h1>
+        </div>
+
+        <div class="content">
+            <p>Dear {{studentName}},</p>
+            <p>You have successfully registered for <strong>{{courseName}}</strong>. Here are your login credentials:</p>
+            
+            <div style="background: #f9f9f9; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <p><strong>Login URL:</strong> <a href="{{loginUrl}}">{{loginUrl}}</a></p>
+                <p><strong>Email:</strong> {{studentEmail}}</p>
+                <p><strong>Password:</strong> {{studentPassword}} (Temporary - please change after login)</p>
+            </div>
+
+            <p><strong>Course Details:</strong></p>
+            <ul>
+                <li><strong>Start Date:</strong> {{startDate}}</li>
+                <li><strong>Instructor:</strong> {{instructorName}}</li>
+                <li><strong>Duration:</strong> {{courseDuration}}</li>
+            </ul>
+
+            <a href="{{loginUrl}}" class="button">Login to Your Account</a>
+
+            <p>If you have any questions, please contact our support team at <a href="mailto:support@yourplatform.com">support@yourplatform.com</a>.</p>
+            <p>Happy learning!</p>
+        </div>
+
+        <div class="footer">
+            <p>&copy; {{currentYear}} Your Platform Name. All rights reserved.</p>
+            <p>
+                <a href="{{privacyPolicyUrl}}">Privacy Policy</a> | 
+                <a href="{{termsUrl}}">Terms of Service</a>
+            </p>
+        </div>
+    </div>
+</body>
+</html>

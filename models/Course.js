@@ -7,6 +7,10 @@ const courseSchema = new mongoose.Schema({
     unique: true,
     required: true,
     trim: true
+  },
+  courseFees:{
+    type:Number,
+    required:true
   }
 }, {
   timestamps: true
