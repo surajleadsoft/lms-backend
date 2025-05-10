@@ -31,7 +31,8 @@ const studentSchema = new mongoose.Schema({
     mobileNo: { type: String, required: true },
     password: { type: String, default: 'LeadSoft@123' },
     isActive:{ type:Boolean,default:true },
-    courseName:{type:String,required:true}
+    courseName:{type:String,required:true},
+    registrationDate: { type: Date, required: true, default: Date.now }
   },
   parent: {
     motherFullname: String,

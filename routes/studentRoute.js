@@ -36,36 +36,7 @@ const populateTemplate1 = (template, data) => {
 };
 
 const sendEmail = async (toEmail, data) => {
-  // const mailOptions = {
-  //   from: '"LeadSoft Placement Academy" <no-reply@leadsoft.academy>',
-  //   to: toEmail,
-  //   subject: 'Course Registration Confirmation',
-  //   template: 'register',
-  //   context: {
-  //     studentName: data.studentName,
-  //     courseName: data.courseName,
-  //     studentEmail: data.studentEmail,
-  //     studentPassword: data.studentPassword,
-  //     loginUrl: data.loginUrl,
-  //     startDate: data.startDate,
-  //     instructorName: data.instructorName,
-  //     courseDuration: data.courseDuration,
-  //     currentYear: new Date().getFullYear(),
-  //     privacyPolicyUrl: data.privacyPolicyUrl || 'https://yourdomain.com/privacy',
-  //     termsUrl: data.termsUrl || 'https://yourdomain.com/terms',
-  //   },
-  // };
-
-  // try {
-  //   const info = await transporter.sendMail(mailOptions);
-  //   console.log('Email sent: ' + info.response);
-  //   return true
-    
-  // } catch (err) {
-  //   console.error('Error sending email:', err);
-  //   return false
-    
-  // }
+  
   const rawTemplate = loadTemplate();
   const html = populateTemplate1(rawTemplate, data);
 
@@ -94,6 +65,20 @@ const getCourseInfo =async(courseName) => {
     return null;
   }
 }
+router.get('/students/by-course/:courseName', async (req, res) => {
+  const  courseName  = req.params.courseName; // Expect courseName as a query parameter
+
+  if (!courseName) {
+    return res.status(400).json({ error: 'courseName is required' });
+  }
+
+  try {
+    const students = await Student.find({ 'basic.courseName': courseName });
+    res.json({status:true,details:students});
+  } catch (error) {
+    res.json({status:false, error: 'Internal Server Error', details: error.message });
+  }
+})
 // Add or update basic details
 router.post('/student/basic', async (req, res) => {
   const { emailAddress, ...basicData } = req.body;

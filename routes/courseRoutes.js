@@ -65,6 +65,7 @@ router.get('/courses-with-count/:courseName', async (req, res) => {
         const count = await Student.countDocuments({ 'basic.courseName': course.courseName });
         return {
           courseName: course.courseName,
+          courseFees:course.courseFees,
           instructorName:course.instructorName,
           SrNo: course.SrNo,
           studentCount: count,

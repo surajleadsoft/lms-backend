@@ -7,6 +7,10 @@ const courseRoutes = require('./routes/courseRoutes')
 const moduleRoutes = require('./routes/moduleRoutes')
 const contentRoutes = require('./routes/ContentRoutes')
 const adminRoutes = require('./routes/AdminRoutes')
+const courseModuleRoute = require('./routes/courseModuleRoutes')
+const courseVideoRoute = require('./routes/courseVideoRoute')
+const courseRegistrationRoute = require('./routes/CourseRegistrationRoute')
+
 const URL ='mongodb+srv://surajleadsoft:LeadSoft%40123@lms.s4b2zfu.mongodb.net/course-lms?retryWrites=true&w=majority&appName=lms'
 
 const server = express()
@@ -17,6 +21,9 @@ server.use('/course',courseRoutes)
 server.use('/module',moduleRoutes)
 server.use('/content',contentRoutes)
 server.use('/admin',adminRoutes)
+server.use('/course-module',courseModuleRoute)
+server.use('/course-video',courseVideoRoute)
+server.use('/course-reg',courseRegistrationRoute)
 
 mongoose.connect(URL)
   .then(() => console.log("✅ Connected to MongoDB Atlas"))
