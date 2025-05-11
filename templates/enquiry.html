@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Course Registration Confirmation</title>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      line-height: 1.6;
+      color: #333333;
+      margin: 0;
+      padding: 0;
+      background-color: #333;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .header {
+      text-align: center;
+      padding: 20px 0;
+      border-bottom: 1px solid #eeeeee;
+    }
+
+    .header img {
+      max-width: 150px;
+    }
+
+    .content {
+      padding: 20px;
+    }
+
+    .highlight-box {
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 5px;
+      margin: 15px 0;
+    }
+
+    .button {
+      display: inline-block;
+      padding: 12px 24px;
+      background-color: blueviolet;
+      color: white !important;
+      text-decoration: none;
+      border-radius: 4px;
+      font-weight: bold;
+      margin: 10px 0;
+    }
+
+    .footer {
+      text-align: center;
+      padding: 20px;
+      font-size: 12px;
+      color: #999999;
+      border-top: 1px solid #eeeeee;
+    }
+
+    @media only screen and (max-width: 600px) {
+      .container {
+        width: 100%;
+        border-radius: 0;
+      }
+      .button {
+        display: block;
+        text-align: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <img src="https://leadsoft.academy/Assets/Images/logo_1.png" alt="Company Logo"/>
+      <h1>Welcome to {{courseName}}!</h1>
+    </div>
+
+    <div class="content">
+      <p>Dear {{studentName}},</p>
+      <p>Congratulations on successfully registering for <strong style="color:darkorange">
+        {{courseName}}</strong>! 🎉</p>
+      <p>We’re thrilled to guide you through this amazing learning journey. Before we begin, 
+        we invite you to attend our <strong>Induction Session</strong> with all the important information you'll need to succeed.</p>
+
+      <div class="highlight-box">
+        <p><strong>📅 Date:</strong> {{inductionDate}}</p>
+        <p><strong>🕒 Time:</strong> {{inductionTime}}</p>
+        <p><strong>🌐 Mode:</strong> Online (Link will be active 20 minutes before)</p>
+      </div>
+
+      <p>This session will cover course structure, tools, resources, and a chance to meet your trainer and fellow participants.</p>
+
+      <a href="{{inductionLink}}" class="button">Join the Induction Session</a>
+
+      <p>If you have any questions before the session, don’t hesitate to reach out. We’re here to support you every step of the way!</p>
+
+      <p>For assistance, contact us at <a href="mailto:suraj.leadsoft@gmail.com">suraj.leadsoft@gmail.com</a> or call <a href="tel:+917028816463">+91 7028816463</a>.</p>
+
+      <p>See you soon in the induction session! 😄</p>
+
+      <p>Warm regards,<br>
+      <strong>Mr. Suraj Pawar</strong><br>
+      Managing Director,<br>
+      LeadSoft Placement Academy</p>
+    </div>
+
+    <div class="footer">
+      <p>&copy; {{currentYear}} LeadSoft Placement Academy. All rights reserved.</p>
+      <p>
+        <a href="{{privacyPolicyUrl}}">Privacy Policy</a> |
+        <a href="{{termsUrl}}">Terms of Service</a>
+      </p>
+    </div>
+  </div>
+</body>
+</html>

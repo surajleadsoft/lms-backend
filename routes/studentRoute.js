@@ -41,7 +41,7 @@ const sendEmail = async (toEmail, data) => {
   const html = populateTemplate1(rawTemplate, data);
 
   const mailOptions = {
-    from: `"LeadSoft Placement Academy" <no-reply@leadsoft.academy>`,
+    from: `"LeadSoft Placement Academy" <no-reply>@leadsoft.academy>`,
     to: toEmail,
     subject: '🚀 LeadSoft Placement Academy - Course Registration Confirmation 🎯',
     html,
