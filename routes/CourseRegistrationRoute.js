@@ -103,7 +103,6 @@ router.put('/courses/:id', async (req, res) => {
 });
 
 router.post('/register-student', async (req, res) => {
-  console.log('registering....')
   try {
     const {collegeName,courseName,education,emailAddress,fullName,gender,mobileNo} = req.body
 
@@ -155,6 +154,139 @@ router.post('/register-student', async (req, res) => {
       status: false,
       message: 'Internal server error'
     });
+  }
+});
+router.post('/register-email', async (req, res) => {
+  try {
+    const {courseName,emailAddress,fullName} = req.body
+    console.log(courseName,emailAddress,fullName)
+    // Find the course by courseName
+    const course = await Course.findOne({ courseName });
+
+    if (!course) {
+      return res.json({
+        status: false,
+        message: 'Course not found'
+      });
+    }
+    const isoString = course.inductionSessionDate;
+    const dateObj = new Date(isoString);
+    const dateOptions = { year: 'numeric', month: 'long', day: 'numeric' };
+    const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true };
+    const formattedDate = dateObj.toLocaleDateString('en-US', dateOptions);
+    const formattedTime = dateObj.toLocaleTimeString('en-US', timeOptions);
+    
+    const emailData={
+      studentName:fullName,
+      courseName:courseName,
+      studentEmail:emailAddress,
+      inductionDate:formattedDate,
+      inductionTime:formattedTime,
+      inductionLink:course.inductionSessionLink
+    }
+    sendEmail(req.body.emailAddress,emailData)
+    return res.json({
+      status: true,
+      message: 'Mail sent successfully !!'
+    });
+  } catch (error) {
+    console.error(error);
+    return res.json({
+      status: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+router.get('/get-classes/:courseName', async (req, res) => {
+  try {
+    const course = await Course.findOne({ courseName: req.params.courseName });
+    if (!course) return res.json({ status: false, message: 'Course not found' });
+    res.json({ status: true, message: 'Classes fetched', classes: course.classes });
+  } catch (err) {
+    res.json({ status: false, message: 'Server error' });
+  }
+});
+
+// ✅ Add a new class
+router.post('/add-class/:courseName', async (req, res) => {
+  const { className, startDate, endDate, time, status, sessionLink } = req.body;
+  try {
+    const course = await Course.findOne({ courseName: req.params.courseName });
+    if (!course) return res.json({ status: false, message: 'Course not found' });
+
+    const exists = course.classes.some(c => c.className.toLowerCase().trim() === className.toLowerCase().trim());
+    if (exists) return res.json({ status: false, message: 'Class already exists' });
+
+    course.classes.push({ className, startDate, endDate, time, status, sessionLink });
+    await course.save();
+    res.json({ status: true, message: 'Class added' });
+  } catch (err) {
+    res.json({ status: false, message: 'Error adding class' });
+  }
+});
+
+// ✅ Update a class
+router.put('/update-class/:courseName/:className', async (req, res) => {
+  const { className, startDate, endDate, time, status, sessionLink } = req.body;
+  try {
+    const course = await Course.findOne({ courseName: req.params.courseName });
+    if (!course) return res.json({ status: false, message: 'Course not found' });
+
+    const index = course.classes.findIndex(c => c.className === req.params.className);
+    if (index === -1) return res.json({ status: false, message: 'Class not found' });
+
+    course.classes[index] = { className, startDate, endDate, time, status, sessionLink };
+    await course.save();
+    res.json({ status: true, message: 'Class updated' });
+  } catch (err) {
+    res.json({ status: false, message: 'Error updating class' });
+  }
+});
+
+// ✅ Delete a class
+router.delete('/delete-class/:courseName/:className', async (req, res) => {
+  try {
+    const course = await Course.findOne({ courseName: req.params.courseName });
+    if (!course) return res.json({ status: false, message: 'Course not found' });
+
+    const before = course.classes.length;
+    course.classes = course.classes.filter(c => c.className !== req.params.className);
+
+    if (course.classes.length === before) {
+      return res.json({ status: false, message: 'Class not found' });
+    }
+
+    await course.save();
+    res.json({ status: true, message: 'Class deleted' });
+  } catch (err) {
+    res.json({ status: false, message: 'Error deleting class' });
+  }
+});
+
+router.delete('/courses/:courseName/student', async (req, res) => {
+  const { courseName } = req.params;
+  const { emailAddress } = req.body;
+
+  if (!emailAddress) {
+    return res.status(400).json({ status: false, message: 'Email address is required.' });
+  }
+
+  try {
+    const result = await Course.findOneAndUpdate(
+      { courseName },
+      { $pull: { students: { emailAddress } } },
+      { new: true }
+    );
+
+    if (!result) {
+      return res.status(404).json({ status: false, message: 'Course not found or no changes made.' });
+    }
+
+    return res.status(200).json({ status: true, message: 'Student deleted successfully.' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ status: false, message: 'Internal server error.' });
   }
 });
 

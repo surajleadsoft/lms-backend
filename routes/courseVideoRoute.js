@@ -56,12 +56,56 @@ router.post('/add-exam', async (req, res) => {
 });
 
 // Get all course content (video + exam)
-router.get('/all', async (req, res) => {
+router.get('/all/:coursename', async (req, res) => {
   try {
-    const content = await CourseContent.find().sort({ createdDate: -1 });
+    const courseName = req.params.coursename
+    const content = await CourseContent.find({courseName}).sort({ createdDate: -1 });
     res.json({ status: true, message: 'Course content retrieved', data: content });
   } catch (err) {
     res.json({ status: false, message: 'Error retrieving content: ' + err.message });
+  }
+});
+
+router.get('/videos/:courseName/:moduleName', async (req, res) => {
+  try {
+    const { courseName, moduleName } = req.params;
+
+    const videos = await CourseContent.find({
+      courseName,
+      moduleName,
+      contentType: 'video'
+    }).sort({ createdDate: -1 });
+
+    res.json({
+      status: true,
+      message: 'Videos retrieved successfully',
+      data: videos
+    });
+  } catch (err) {
+    res.json({
+      status: false,
+      message: 'Error retrieving videos: ' + err.message
+    });
+  }
+});
+router.get('/get-video/:serialNo', async (req, res) => {
+  try {
+    const serialNo = req.params.serialNo
+
+    const videos = await CourseContent.find({
+      serialNo
+    })
+
+    res.json({
+      status: true,
+      message: 'Videos retrieved successfully',
+      data: videos
+    });
+  } catch (err) {
+    res.json({
+      status: false,
+      message: 'Error retrieving videos: ' + err.message
+    });
   }
 });
 

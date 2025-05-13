@@ -48,19 +48,17 @@ router.delete('/delete/:srNo', async (req, res) => {
 });
 
 // GET: Get all content or filter by course/module
-router.get('/', async (req, res) => {
+router.get('/get-data/:courseName/:moduleName', async (req, res) => {
   try {
-    const { courseName, moduleName } = req.query;
-    const query = {};
+    const { courseName, moduleName } = req.params;
+    
+    console.log(courseName,moduleName)
 
-    if (courseName) query.courseName = courseName;
-    if (moduleName) query.moduleName = moduleName;
-
-    const content = await Content.find(query).sort({ srNo: 1 });
+    const content = await Content.find();
 
     res.json({ success: true, data: content });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.json({ success: false, message: error.message });
   }
 });
 

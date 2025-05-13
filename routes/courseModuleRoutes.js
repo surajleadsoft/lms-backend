@@ -35,6 +35,21 @@ router.get('/:courseName', async (req, res) => {
   }
 });
 
+router.get('/:courseName/:moduleName', async (req, res) => {
+  const courseName = req.params.courseName
+  const moduleName = req.params.moduleName
+
+  try {
+    const module = await CourseModule.find({ courseName,moduleName });
+    if (!module) {
+      return res.json({status:false, message: 'Module not found.' });
+    }
+    res.json({status:true,message:module});
+  } catch (err) {
+    res.json({status:false, message: 'Server error.', error: err.message });
+  }
+});
+
 // UPDATE - By courseName and moduleName
 router.put('/update', async (req, res) => {
   const { courseName, moduleName, newModuleName } = req.body;

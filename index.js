@@ -14,6 +14,16 @@ const courseRegistrationRoute = require('./routes/CourseRegistrationRoute')
 const URL ='mongodb+srv://surajleadsoft:LeadSoft%40123@lms.s4b2zfu.mongodb.net/course-lms?retryWrites=true&w=majority&appName=lms'
 
 const server = express()
+const corsOptions = {
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://courses.leadsoft.academy',
+    'https://lms-admin.leadsoft.academy',
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
 server.use(cors())
 server.use(bodyParser.json())
 server.use('/api',studentRoutes)

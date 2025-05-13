@@ -1,103 +1,75 @@
 const mongoose = require('mongoose');
 
-// Sub-schemas
+// Sub-schemas (as before)
 const faqSchema = new mongoose.Schema({
   question: { type: String, required: true },
   answer: { type: String, required: true }
 }, { _id: false });
 
-const joinerSchema = new mongoose.Schema({
-  category: { type: String, required: true }
-}, { _id: false });
-
-const learnTopicSchema = new mongoose.Schema({
-  domain: { type: String, required: true },
-  topic: { type: String, required: true }
-}, { _id: false });
-
-const outcomeSchema = new mongoose.Schema({
-  outcome: { type: String, required: true }
-}, { _id: false });
-
-const trainerDetailSchema = new mongoose.Schema({
-  detail: { type: String, required: true }
-}, { _id: false });
-
+const joinerSchema = new mongoose.Schema({ category: { type: String, required: true } }, { _id: false });
+const learnTopicSchema = new mongoose.Schema({ domain: String, topic: String }, { _id: false });
+const outcomeSchema = new mongoose.Schema({ outcome: String }, { _id: false });
+const trainerDetailSchema = new mongoose.Schema({ detail: String }, { _id: false });
 const studentSchema = new mongoose.Schema({
-  fullName: { type: String, required: true },
-  courseName: { type: String, required: true },
-  emailAddress: { 
-    type: String, 
-    required: true 
-  },
-  gender: { type: String, required: true },
-  mobileNo: { type: String, required: true },
-  education: { type: String, required: true },
-  collegeName: { type: String, required: true },
-  courseFees: { type: String, required: true }
+  fullName: String,
+  courseName: String,
+  emailAddress: String,
+  gender: String,
+  mobileNo: String,
+  education: String,
+  collegeName: String,
+  courseFees: String
+}, { _id: false });
+
+// ✅ Classes schema
+const classSchema = new mongoose.Schema({
+  className: { type: String, required: true },
+  startDate: { type: String, required: true },
+  endDate: { type: String, required: true },
+  time: { type: String, required: true },
+  status: { type: String, required: true },
+  sessionLink: { type: String, required: true }
 }, { _id: false });
 
 const courseRegistrationSchema = new mongoose.Schema({
   courseName: { type: String, required: true, unique: true },
-  inductionSessionDate: { type: String, required: true },
-  inductionSessionLink: { type: String, required: true },
-  mainText: { type: String, required: true },
-  subText: { type: String, required: true },
-  courseDuration: { type: String, required: true },
-  courseFees: { type: String, required: true },
-  offer: { type: String, required: true },
-  courseMode: { type: String, required: true },
-  certification: { type: String, required: true },
-  endRegistrationDate: { type: String, required: true },
-  placement: { type: String, required: true },
+  inductionSessionDate: String,
+  inductionSessionLink: String,
+  mainText: String,
+  subText: String,
+  courseDuration: String,
+  courseFees: String,
+  offer: String,
+  courseMode: String,
+  certification: String,
+  endRegistrationDate: String,
+  placement: String,
 
   faqs: [faqSchema],
+  joiners: [joinerSchema],
+  learnTopics: [learnTopicSchema],
+  outcomes: [outcomeSchema],
+  trainerDetails: [trainerDetailSchema],
+  students: [studentSchema],
 
-  joiners: {
-    type: [joinerSchema],
+  classes: {
+    type: [classSchema],
     validate: {
-      validator: arr => new Set(arr.map(j => j.category)).size === arr.length,
-      message: 'Duplicate category in joiners is not allowed.'
-    }
-  },
-
-  learnTopics: {
-    type: [learnTopicSchema],
-    validate: {
-      validator: arr => {
-        const seen = new Set();
+      validator: function (arr) {
+        const classSet = new Set();
         return arr.every(item => {
-          const key = `${item.domain}_${item.topic}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
+          const key = item.className.toLowerCase().trim();
+          if (classSet.has(key)) return false;
+          classSet.add(key);
           return true;
         });
       },
-      message: 'Duplicate domain-topic pair in learnTopics is not allowed.'
+      message: 'Duplicate className is not allowed in classes.'
     }
-  },
-
-  outcomes: {
-    type: [outcomeSchema],
-    validate: {
-      validator: arr => new Set(arr.map(o => o.outcome)).size === arr.length,
-      message: 'Duplicate outcomes are not allowed.'
-    }
-  },
-
-  trainerDetails: {
-    type: [trainerDetailSchema],
-    validate: {
-      validator: arr => new Set(arr.map(t => t.detail)).size === arr.length,
-      message: 'Duplicate trainer details are not allowed.'
-    }
-  },
-
-  students: [studentSchema]
+  }
 });
 
-
-// ✅ Pre-save hook to check for duplicate emails within a course
+// Duplicate email check in students
 courseRegistrationSchema.pre('save', function (next) {
   const emailSet = new Set();
   for (const student of this.students) {
@@ -110,7 +82,6 @@ courseRegistrationSchema.pre('save', function (next) {
   next();
 });
 
-// ✅ Pre-update hook to ensure same during updates
 courseRegistrationSchema.pre('findOneAndUpdate', function (next) {
   const update = this.getUpdate();
   if (update.students) {
