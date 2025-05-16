@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const CourseContent = require('../models/courseContentSchema');
+const WatchedVideo = require('../models/watchVideos')
 
 // Utility: Get next serial number for a course/module
 const getNextSerialNo = async (courseName) => {
@@ -81,6 +82,63 @@ router.get('/videos/:courseName/:moduleName', async (req, res) => {
       message: 'Videos retrieved successfully',
       data: videos
     });
+  } catch (err) {
+    res.json({
+      status: false,
+      message: 'Error retrieving videos: ' + err.message
+    });
+  }
+});
+router.get('/videos/:courseName/:moduleName/:email', async (req, res) => {
+  try {
+    const { courseName, moduleName,email } = req.params;
+
+    if (!email) {
+      return res.json({
+        status: false,
+        message: 'Email address is required'
+      });
+    }
+
+    // Step 1: Get all video contents
+    const videos = await CourseContent.find({
+      courseName,
+      moduleName,
+      contentType: 'video'
+    }).sort({ createdDate: -1 });
+
+    // Step 2: Get all watchedVideo entries for this user
+    const watchedData = await WatchedVideo.find({
+      emailAddress: email,
+      courseName,
+      moduleName
+    });
+
+    // Step 3: Create a map for fast lookup
+    const watchedMap = {};
+    watchedData.forEach(entry => {
+      watchedMap[entry.serialNo] = {
+        percentage: entry.percentage,
+        currentTime: entry.currentTime
+      };
+    });
+
+    // Step 4: Merge the percentage and currentTime into each video
+    const enrichedVideos = videos.map(video => {
+      const extra = watchedMap[video.serialNo] || { percentage: 0, currentTime: '0' };
+      return {
+        ...video.toObject(),
+        percentage: extra.percentage,
+        currentTime: extra.currentTime
+      };
+    });
+
+    res.json({
+      status: true,
+      message: 'Videos retrieved successfully with watch data',
+      data: enrichedVideos
+    });
+
   } catch (err) {
     res.json({
       status: false,

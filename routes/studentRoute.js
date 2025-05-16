@@ -79,22 +79,168 @@ const getCourseInfo =async(courseName) => {
   }
 }
 router.get('/students/by-course/:courseName', async (req, res) => {
-  const  courseName  = req.params.courseName; // Expect courseName as a query parameter
+  const  courseName  = req.params.courseName; 
+  
 
   if (!courseName) {
     return res.status(400).json({ error: 'courseName is required' });
   }
 
   try {
-    const students = await Student.find({ 'basic.courseName': courseName });
+    const students = await Student.find({ 'basic.courseName.courseName': courseName });
     res.json({status:true,details:students});
   } catch (error) {
     res.json({status:false, error: 'Internal Server Error', details: error.message });
   }
 })
+router.post('/update-password', async (req, res) => {
+  const { emailAddress, newPassword } = req.body;
+
+  if (!emailAddress || !newPassword) {
+    return res.json({ status:false, message: 'Email and new password are required.' });
+  }
+
+  try {
+    const student = await Student.findOneAndUpdate(
+      { "basic.emailAddress": emailAddress },
+      { $set: { "basic.password": newPassword } },
+      { new: true }
+    );
+
+    if (!student) {
+      return res.json({ status:false, message: 'Student not found with that email.' });
+    }
+
+    res.json({status:true, message: 'Password updated successfully.' });
+  } catch (error) {
+    console.error('Error updating password:', error);
+    res.json({status:false, message: 'Internal server error.' });
+  }
+});
+
+const loadTemplate1 = () => {
+  const filePath = path.join(__dirname, '../templates', 'passwordOTP.html');
+  return fs.readFileSync(filePath, 'utf-8');
+};
+
+const populateTemplate2 = (template, data) => {
+  return template
+    .replace(/{{userName}}/g, data.emailAddress)
+    .replace(/{{otpCode}}/g, data.otpCode)
+    .replace(/{{resetUrl}}/g, `https://courses.leadsoft.academy/forgot-password?status=verify&username=${data.emailAddress}`)    
+    .replace(/{{privacyPolicyUrl}}/g, 'https://courses.leadsoft.academy/privacy-policy')
+    .replace(/{{termsUrl}}/g, 'https://courses.leadsoft.academy/terms')
+    .replace(/{{currentYear}}/g, new Date().getFullYear());
+};
+
+const sendEmail2 = async (toEmail, data) => {  
+  const rawTemplate = loadTemplate1();
+  const html = populateTemplate2(rawTemplate, data);
+
+  const mailOptions = {
+    from: `"LeadSoft Placement Academy" <suraj.leadsoft@gmail.com>`,
+    to: toEmail,
+    subject: 'LeadSoft Placement Academy - OTP Verification For Forgot Your Password.',
+    html,
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Email sent:', info.response);
+    return true
+  } catch (error) {
+    console.error('❌ Failed to send email:', error.message);
+    return false
+  }
+};
+
+router.patch('/student/add-credits', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.json({status:false, error: 'Email is required' });
+    }
+
+    // Find student by email and increment credits by 5
+    const updatedStudent = await Student.findOneAndUpdate(
+      { "basic.emailAddress": email },
+      { $inc: { credits: 5 } },
+      { new: true } // return updated document
+    );
+
+    if (!updatedStudent) {
+      return res.json({ error: 'Student not found' });
+    }
+
+    return res.json({
+      message: 'Credits updated successfully',
+      credits: updatedStudent.credits,
+      student: updatedStudent,
+    });
+  } catch (error) {
+    console.error('Error updating credits:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.patch('/student/decrement-credits', async (req, res) => {
+  try {
+    const { email, amount } = req.body;
+
+    if (!email || typeof amount !== 'number') {
+      return res.json({status:false, message: 'Email and numeric amount are required' });
+    }
+
+    // Find the student
+    const student = await Student.findOne({ "basic.emailAddress": email });
+
+    if (!student) {
+      return res.json({status:false, message: 'Student not found' });
+    }
+
+    // Check if credits are sufficient
+    if (student.credits < amount) {
+      return res.json({status:false,message: 'Insufficient credits' });
+    }
+
+    // Perform the decrement
+    const updatedStudent = await Student.findOneAndUpdate(
+      { "basic.emailAddress": email },
+      { $inc: { credits: -amount } },
+      { new: true }
+    );
+
+    return res.json({
+      status:true,
+      message: `Credits decremented by ${amount}`,
+      credits: updatedStudent.credits,
+      student: updatedStudent,
+    });
+  } catch (error) {
+    console.error('Error decrementing credits:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+
+
+router.post('/send-otp',async (req,res)=>{
+  const {emailAddress,otp} = req.body
+  const mailData={
+    emailAddress:emailAddress,
+    otpCode:otp
+  }
+  let status = await sendEmail2(emailAddress,mailData)
+  if(status){
+    res.json({status:true,message:'OTP sent successfully !!'})
+  } else{
+    res.json({status:false,message:'Failed to send OTP'})
+  }
+})
+
 // Add or update basic details
 router.post('/student/basic', async (req, res) => {
-  console.log('heck')
   const { emailAddress, courseName, ...restBasicData } = req.body;
 
   if (!emailAddress || !courseName) {
@@ -180,7 +326,6 @@ router.post('/student/basic', async (req, res) => {
 
 router.get('/student/:id',async(req,res)=>{
   const id = req.params.id
-  console.log(id)
   const student = await Student.findById({_id:id})
   if(student){
     res.json({status:true,message:student.basic.courseName})

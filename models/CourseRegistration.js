@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-// Sub-schemas (as before)
+// Sub-schemas
 const faqSchema = new mongoose.Schema({
   question: { type: String, required: true },
   answer: { type: String, required: true }
@@ -10,6 +10,7 @@ const joinerSchema = new mongoose.Schema({ category: { type: String, required: t
 const learnTopicSchema = new mongoose.Schema({ domain: String, topic: String }, { _id: false });
 const outcomeSchema = new mongoose.Schema({ outcome: String }, { _id: false });
 const trainerDetailSchema = new mongoose.Schema({ detail: String }, { _id: false });
+
 const studentSchema = new mongoose.Schema({
   fullName: String,
   courseName: String,
@@ -21,7 +22,6 @@ const studentSchema = new mongoose.Schema({
   courseFees: String
 }, { _id: false });
 
-// ✅ Classes schema
 const classSchema = new mongoose.Schema({
   className: { type: String, required: true },
   startDate: { type: String, required: true },
@@ -69,32 +69,6 @@ const courseRegistrationSchema = new mongoose.Schema({
   }
 });
 
-// Duplicate email check in students
-courseRegistrationSchema.pre('save', function (next) {
-  const emailSet = new Set();
-  for (const student of this.students) {
-    const key = student.emailAddress.toLowerCase().trim();
-    if (emailSet.has(key)) {
-      return next(new Error(`Duplicate emailAddress found: ${key}`));
-    }
-    emailSet.add(key);
-  }
-  next();
-});
 
-courseRegistrationSchema.pre('findOneAndUpdate', function (next) {
-  const update = this.getUpdate();
-  if (update.students) {
-    const emailSet = new Set();
-    for (const student of update.students) {
-      const key = student.emailAddress.toLowerCase().trim();
-      if (emailSet.has(key)) {
-        return next(new Error(`Duplicate emailAddress found in update: ${key}`));
-      }
-      emailSet.add(key);
-    }
-  }
-  next();
-});
 
 module.exports = mongoose.model('courseRegistration', courseRegistrationSchema);

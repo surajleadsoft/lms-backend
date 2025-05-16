@@ -25,6 +25,7 @@ router.post('/register-course', async (req, res) => {
     );    
     res.json({ status: true, message: 'Course registered or updated successfully!', data: courseData });
   } catch (error) {
+    console.log(error)
     res.json({ status: false, message: 'Failed to register or update course', error: error.message });
   }
 });
@@ -84,6 +85,7 @@ router.get('/courses/:courseName', async (req, res) => {
     }
     res.json({status:true,message:course});
   } catch (error) {
+    console.log(error)
     res.json({status:false, message: 'Error fetching course', error: error.message });
   }
 });
