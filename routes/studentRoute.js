@@ -39,12 +39,12 @@ const populateTemplate1 = (template, data) => {
     .replace(/{{courseName}}/g, data.courseName)
     .replace(/{{studentEmail}}/g, data.studentEmail)
     .replace(/{{studentPassword}}/g, data.studentPassword)
-    .replace(/{{loginUrl}}/g, 'https://www.courses.leadsoft.academy')
+    .replace(/{{loginUrl}}/g, 'https://courses.leadsoft.academy')
     .replace(/{{startDate}}/g, data.startDate)
     .replace(/{{instructorName}}/g, data.instructorName)
     .replace(/{{courseDuration}}/g, data.courseDuration)
-    .replace(/{{privacyPolicyUrl}}/g, 'https://www.courses.leadsoft.academy')
-    .replace(/{{termsUrl}}/g, 'https://www.courses.leadsoft.academy')
+    .replace(/{{privacyPolicyUrl}}/g, 'https://courses.leadsoft.academy/privacy')
+    .replace(/{{termsUrl}}/g, 'https://courses.leadsoft.academy/terms')
     .replace(/{{currentYear}}/g, new Date().getFullYear());
 };
 
