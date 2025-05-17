@@ -26,7 +26,7 @@ const corsOptions = {
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 };
-server.use(cors())
+server.use(cors(corsOptions))
 server.use(bodyParser.json())
 server.use('/api',studentRoutes)
 server.use('/course',courseRoutes)
