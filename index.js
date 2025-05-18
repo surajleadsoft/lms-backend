@@ -12,6 +12,10 @@ const courseVideoRoute = require('./routes/courseVideoRoute')
 const courseRegistrationRoute = require('./routes/CourseRegistrationRoute')
 const attendanceRoute = require('./routes/AttendanceRoute')
 const watchVideoRoute = require('./routes/WatchVideosRoute')
+const subjectRoute = require('./routes/subjectRoutes')
+const chapterRoute = require('./routes/chapterRoute')
+const categoryRoute = require('./routes/categoryRoute')
+const questionRoute = require('./routes/questionRoute')
 
 const URL ='mongodb+srv://surajleadsoft:LeadSoft%40123@lms.s4b2zfu.mongodb.net/course-lms?retryWrites=true&w=majority&appName=lms'
 
@@ -39,6 +43,10 @@ server.use('/course-video',courseVideoRoute)
 server.use('/course-reg',courseRegistrationRoute)
 server.use('/attendance',attendanceRoute)
 server.use('/watch',watchVideoRoute)
+server.use('/subject',subjectRoute)
+server.use('/chapter',chapterRoute)
+server.use('/category',categoryRoute)
+server.use('/question',questionRoute)
 
 mongoose.connect(URL)
   .then(() => console.log("✅ Connected to MongoDB Atlas"))
