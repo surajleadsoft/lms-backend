@@ -24,7 +24,7 @@ const corsOptions = {
   origin: [
     'http://localhost:5173',
     'http://localhost:5174',
-    'https://course-admin.leadsoft.academy/',
+    'https://course-admin.leadsoft.academy',
     'https://courses.leadsoft.academy',
     'https://lms-admin.leadsoft.academy',
   ],
