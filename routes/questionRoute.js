@@ -36,6 +36,33 @@ router.get('/subject/:subjectName', async (req, res) => {
   }
 });
 
+router.post('/random', async (req, res) => {
+  const { subjectName, chapterName, noOfquestions } = req.body;
+
+  if (!subjectName || !chapterName || !noOfquestions) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  try {
+    const questions = await Question.aggregate([
+      {
+        $match: {
+          subjectName: subjectName,
+          chapterName: chapterName,
+        },
+      },
+      {
+        $sample: { size: parseInt(noOfquestions) },
+      },
+    ]);
+
+    res.json({status:true,data:questions });
+  } catch (error) {
+    console.error('Error fetching random questions:', error);
+    res.json({ status:false,error: 'Internal Server Error' });
+  }
+});
+
 // GET by subject and chapter
 router.get('/subject/:subjectName/chapter/:chapterName', async (req, res) => {
   try {

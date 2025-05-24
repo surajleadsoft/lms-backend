@@ -16,6 +16,9 @@ const subjectRoute = require('./routes/subjectRoutes')
 const chapterRoute = require('./routes/chapterRoute')
 const categoryRoute = require('./routes/categoryRoute')
 const questionRoute = require('./routes/questionRoute')
+const examRoute = require('./routes/ExamRoute');
+const examSectionRoute = require('./routes/examSectionRoute');
+const paymentRoute = require('./routes/paymentRoute')
 
 const URL ='mongodb+srv://surajleadsoft:LeadSoft%40123@lms.s4b2zfu.mongodb.net/course-lms?retryWrites=true&w=majority&appName=lms'
 
@@ -28,7 +31,7 @@ const corsOptions = {
     'https://courses.leadsoft.academy',
     'https://lms-admin.leadsoft.academy',
   ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE','PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 server.use(cors(corsOptions))
@@ -47,6 +50,9 @@ server.use('/subject',subjectRoute)
 server.use('/chapter',chapterRoute)
 server.use('/category',categoryRoute)
 server.use('/question',questionRoute)
+server.use('/exam',examRoute)
+server.use('/exam-section',examSectionRoute)
+server.use('/payment',paymentRoute)
 
 mongoose.connect(URL)
   .then(() => console.log("✅ Connected to MongoDB Atlas"))

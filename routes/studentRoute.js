@@ -222,6 +222,40 @@ router.patch('/student/decrement-credits', async (req, res) => {
   }
 });
 
+router.patch('/student/increment-credits', async (req, res) => {
+  try {
+    const { email, amount } = req.body;
+
+    if (!email || typeof amount !== 'number') {
+      return res.json({ status: false, message: 'Email and numeric amount are required' });
+    }
+
+    // Find the student
+    const student = await Student.findOne({ "basic.emailAddress": email });
+
+    if (!student) {
+      return res.json({ status: false, message: 'Student not found' });
+    }
+
+    // Perform the increment
+    const updatedStudent = await Student.findOneAndUpdate(
+      { "basic.emailAddress": email },
+      { $inc: { credits: amount } },
+      { new: true }
+    );
+
+    return res.json({
+      status: true,
+      message: `Credits incremented by ${amount}`,
+      credits: updatedStudent.credits,
+      student: updatedStudent,
+    });
+
+  } catch (error) {
+    console.error('Error incrementing credits:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 
 
@@ -324,7 +358,7 @@ router.post('/student/basic', async (req, res) => {
   }
 });
 
-router.get('/student/:id',async(req,res)=>{
+router.get('/student-id/:id',async(req,res)=>{
   const id = req.params.id
   const student = await Student.findById({_id:id})
   if(student){
@@ -461,6 +495,7 @@ router.post('/login', async (req, res) => {
       data: {
         studentId: student._id,
         name: `${student.basic.firstName}`,
+        fullName: `${student.basic.firstName} ${student.basic.lastName}`,
         course: student.basic.courseName
       }
     });
@@ -476,9 +511,10 @@ router.post('/login', async (req, res) => {
 router.get('/student-get', async (req, res) => {  
   try {
     const students = await Student.find();
-    res.json(students);
+    res.json({status:true,data:students});
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.log(err)
+    res.json({status:false, message: err.message });
   }
 });
 router.get('/student/get/:email', async (req, res) => {
