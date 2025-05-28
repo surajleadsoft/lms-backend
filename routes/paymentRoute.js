@@ -116,7 +116,6 @@ router.post('/total', async (req, res) => {
         }
       }
     ]);
-    console.log(result)
     return result.length > 0 ? res.json({status:true,totalAmountPaid: result[0].totalAmountPaid }) : res.json({status:false,totalAmountPaid:0 });
 
     
@@ -147,7 +146,6 @@ router.post('/total1', async (req, res) => {
         }
       }
     ]);
-    console.log(result)
     return result.length > 0 ? res.json({status:true,totalAmountPaid: result[0].totalAmountPaid }) : res.json({status:false,totalAmountPaid:0 });
 
     

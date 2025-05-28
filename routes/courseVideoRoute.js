@@ -146,12 +146,14 @@ router.get('/videos/:courseName/:moduleName/:email', async (req, res) => {
     });
   }
 });
-router.get('/get-video/:serialNo', async (req, res) => {
+router.get('/get-video/:courseName,:serialNo', async (req, res) => {
   try {
     const serialNo = req.params.serialNo
+    const courseName = req.params.courseName
 
     const videos = await CourseContent.find({
-      serialNo
+      serialNo,
+      courseName
     })
 
     res.json({

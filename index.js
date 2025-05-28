@@ -19,6 +19,10 @@ const questionRoute = require('./routes/questionRoute')
 const examRoute = require('./routes/ExamRoute');
 const examSectionRoute = require('./routes/examSectionRoute');
 const paymentRoute = require('./routes/paymentRoute')
+const resourceRoute = require('./routes/ResourceRoute')
+const annoucementRoute = require('./routes/AnnouncementRoute')
+const campusRoute = require('./routes/campusRoute');
+const applicationRoute = require('./routes/applicationRoute')
 
 const URL ='mongodb+srv://surajleadsoft:LeadSoft%40123@lms.s4b2zfu.mongodb.net/course-lms?retryWrites=true&w=majority&appName=lms'
 
@@ -53,10 +57,17 @@ server.use('/question',questionRoute)
 server.use('/exam',examRoute)
 server.use('/exam-section',examSectionRoute)
 server.use('/payment',paymentRoute)
+server.use('/resource',resourceRoute)
+server.use('/announce',annoucementRoute)
+server.use('/campus',campusRoute)
+server.use('/application',applicationRoute)
+server.use('/uploads/resources', express.static('uploads/resources'));
 
 mongoose.connect(URL)
   .then(() => console.log("✅ Connected to MongoDB Atlas"))
   .catch(err => console.error("❌ DB Connection Failed:", err));
+
+
 
 server.listen(8055,()=>{
     console.log('Server started listening on port 8055')

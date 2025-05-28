@@ -93,16 +93,14 @@ router.get('/get-by-course/:email/:courseName', async (req, res) => {
 // GET by courseName + moduleName with overall percentage
 router.get('/get-by-module/:email/:courseName/:moduleName', async (req, res) => {
   try {
-    const { email, courseName, moduleName } = req.params;
-    console.log(email,courseName,moduleName)
+    const { email, courseName, moduleName } = req.params;    
     // Get all videos for the course and module
     const moduleVideos = await CourseContent.find({ 
       courseName, 
       moduleName,
       contentType: 'video' 
     });
-    const totalVideos = moduleVideos.length;
-    console.log('Line no 105 :',moduleVideos)
+    const totalVideos = moduleVideos.length;    
 
     if (totalVideos === 0) {
       return res.json({ status: true, overallPercentage: 0, message: 'No videos found for this module' });

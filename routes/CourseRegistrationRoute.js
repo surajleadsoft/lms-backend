@@ -78,7 +78,7 @@ router.get('/courses', async (req, res) => {
 });
 
 router.get('/courses/:courseName', async (req, res) => {
-  try {
+  try {    
     const course = await Course.findOne({ courseName: req.params.courseName });
     if (!course) {
       return res.json({status:false, message: 'Course not found' });
@@ -103,7 +103,25 @@ router.put('/courses/:id', async (req, res) => {
     res.status(400).json({ message: 'Failed to update course', error: error.message });
   }
 });
+router.get('/classes/:courseName', async (req, res) => {
+  const courseName = req.params.courseName;
+  try {
+    const course = await Course.findOne({ courseName });
 
+    if (!course) {
+      return res.json({ status: false, message: 'Course not found' });
+    }
+
+    // Add courseName to each class object
+    const classWithCourseName = course.classes.map(cls => ({
+      ...cls.toObject(),
+      courseName
+    }));
+    res.json({ status: true, data: classWithCourseName });
+  } catch (error) {
+    res.json({ status: false, message: 'Server Error', error });
+  }
+});
 router.post('/register-student', async (req, res) => {
   try {
     const {collegeName,courseName,education,emailAddress,fullName,gender,mobileNo} = req.body
@@ -161,8 +179,6 @@ router.post('/register-student', async (req, res) => {
 router.post('/register-email', async (req, res) => {
   try {
     const {courseName,emailAddress,fullName} = req.body
-    console.log(courseName,emailAddress,fullName)
-    // Find the course by courseName
     const course = await Course.findOne({ courseName });
 
     if (!course) {

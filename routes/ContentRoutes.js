@@ -51,11 +51,7 @@ router.delete('/delete/:srNo', async (req, res) => {
 router.get('/get-data/:courseName/:moduleName', async (req, res) => {
   try {
     const { courseName, moduleName } = req.params;
-    
-    console.log(courseName,moduleName)
-
     const content = await Content.find();
-
     res.json({ success: true, data: content });
   } catch (error) {
     res.json({ success: false, message: error.message });

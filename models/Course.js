@@ -15,7 +15,8 @@ const courseSchema = new mongoose.Schema({
   startDate:{
     type:Date,
     required:true
-  },
+  },  
+  isAdmissionOpen:{type:Boolean,default:false},
   instructorName:{
     type:String,
     required:true

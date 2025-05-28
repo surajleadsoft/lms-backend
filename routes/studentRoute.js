@@ -12,7 +12,6 @@ async function addCreditsToExistingStudents() {
       { credits: { $exists: false } }, // Only update documents that don't already have the field
       { $set: { credits: 50 } }
     );
-    console.log(`Updated ${result.modifiedCount} students.`);
   } catch (err) {
     console.error('Error updating credits:', err);
   }
@@ -285,8 +284,6 @@ router.post('/student/basic', async (req, res) => {
     let student = await Student.findOne({ "basic.emailAddress": emailAddress });
 
     if (student) {
-      console.log('Student found');
-
       const existingCourses = student.basic.courseName || [];
 
       // Check if the course already exists
@@ -309,7 +306,6 @@ router.post('/student/basic', async (req, res) => {
       student.basic.mobileNo = restBasicData.mobileNo || student.basic.mobileNo;
 
     } else {
-      console.log('Creating new student');
 
       student = new Student({
         basic: {

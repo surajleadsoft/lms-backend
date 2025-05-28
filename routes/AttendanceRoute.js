@@ -25,7 +25,6 @@ router.post('/join', async (req, res) => {
       });
     } else {
       // Create new attendance with inTime as array
-      console.log('new')
       const newAttendance = new Attendance({
         emailAddress,
         courseName,
@@ -131,6 +130,43 @@ router.delete('/:id', async (req, res) => {
     res.json({
       status: false,
       message: error.message
+    });
+  }
+});
+router.get('/present-count', async (req, res) => {
+  const { emailAddress } = req.query;
+
+  if (!emailAddress) {
+    return res.json({
+      status: false,
+      message: 'emailAddress is required',
+    });
+  }
+
+  try {
+    const count = await Attendance.countDocuments({
+      emailAddress,
+      status: 'Present',
+    });
+
+    if (count === 0) {
+      return res.json({
+        status: true,
+        message: 'No records found',
+        count:0
+      });
+    }
+
+    return res.json({
+      status: true,
+      message: 'Records found',
+      count:count,
+    });
+
+  } catch (error) {
+    return res.json({
+      status: false,
+      message: 'Something went wrong',
     });
   }
 });

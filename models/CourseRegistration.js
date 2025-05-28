@@ -44,7 +44,6 @@ const courseRegistrationSchema = new mongoose.Schema({
   certification: String,
   endRegistrationDate: String,
   placement: String,
-
   faqs: [faqSchema],
   joiners: [joinerSchema],
   learnTopics: [learnTopicSchema],

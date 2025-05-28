@@ -5,6 +5,155 @@ const Exams = require('../models/Exams'); // path may vary
 const Question = require('../models/Question'); 
 const Category = require('../models/Categories'); 
 
+function addTimes(time1, time2) {
+  const [h1, m1] = time1.split(':').map(Number);
+  const [h2, m2] = time2.split(':').map(Number);
+  let minutes = m1 + m2;
+  let hours = h1 + h2 + Math.floor(minutes / 60);
+  minutes %= 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+router.get('/exam-attempted', async (req, res) => {
+  const { emailAddress } = req.query;
+
+  if (!emailAddress) {
+    return res.json({
+      status: false,
+      message: 'emailAddress is required',
+    });
+  }
+
+  try {
+    const records = await ExamSection.find({ emailAddress });
+
+    if (records.length === 0) {
+      return res.json({
+        status: false,
+        message: 'No records found',
+        count: 0,
+        records: [],
+      });
+    }
+
+    return res.json({
+      status: true,
+      message: 'Records found',
+      count: records.length,
+      records,
+    });
+
+  } catch (error) {
+    return res.json({
+      status: false,
+      message: 'Something went wrong',
+    });
+  }
+});
+
+const getStatusFromPercentage = (percentString) => {
+  const percent = parseFloat(percentString.replace('%', ''));
+  return percent >= 70 ? 'passed' : 'failed';
+};
+
+router.get('/exam-result-summary', async (req, res) => {
+  const { emailAddress } = req.query;
+
+  if (!emailAddress) {
+    return res.json({ status: false, message: "emailAddress is required" });
+  }
+
+  try {
+    const tests = await ExamSection.find({ emailAddress }).sort({ createdAt: -1 });;
+
+    if (!tests || tests.length === 0) {
+      return res.json({ status: true, message: "No records found", data: [] });
+    }
+
+    const results = tests.map(test => {
+      let totalMarks = 0;
+      let marksReceived = 0;
+
+      (test.sections || []).forEach(section => {
+        const sectionMarks = section.totalMarks || 0;
+        const correct = (section.questions || []).filter(q => q.status === 'correct').length;
+
+        totalMarks += sectionMarks;
+        marksReceived += correct;
+      });
+
+      const percentage = totalMarks > 0
+        ? `${((marksReceived / totalMarks) * 100).toFixed(2)}%`
+        : "0.00%";
+
+      return {
+        examName: test.examName,
+        percentage,
+        status: getStatusFromPercentage(percentage)
+      };
+    });
+
+    res.json({ status: true, data: results });
+
+  } catch (err) {
+    console.error(err);
+    res.json({ status: false, message: "Server error" });
+  }
+});
+
+
+router.get('/exam-summary', async (req, res) => {
+  const { examName } = req.query;
+
+  if (!examName) {
+    return res.status(400).json({ error: "examName is required" });
+  }
+
+  try {
+    const students = await ExamSection.find({ examName });
+
+    const results = students.map(student => {
+      let totalMarks = 0;
+      let markReceived = 0;
+      let totalTimeTaken = "00:00";
+
+      const sections = (student.sections || []).map(section => {
+        const correct = (section.questions || []).filter(q => q.status === 'correct').length;
+        const secTotal = section.totalMarks || 0;
+        totalMarks += secTotal;
+        markReceived += correct;
+        totalTimeTaken = addTimes(totalTimeTaken, section.timeTaken || "00:00");
+
+        return {
+          sectionName: section.sectionName,
+          timeTaken: section.timeTaken,
+          totalMarks: secTotal,
+          marksReceived: correct
+        };
+      });
+
+      const percentage = totalMarks > 0
+        ? `${((markReceived / totalMarks) * 100).toFixed(2)}%`
+        : "0.00%";
+
+      return {
+        fullName: student.fullName,
+        markReceived,
+        emailAddress: student.emailAddress,
+        examName: student.examName,
+        totalTimeTaken,
+        totalMarks,
+        percentage,
+        sections
+      };
+    });
+
+    res.json({status:true,data:results});
+  } catch (err) {
+    console.error(err);
+    res.json({status:false, error: "Server error" });
+  }
+});
+
 // 1. Insert a new exam section record
 router.post('/addSection', async (req, res) => {
   try {
