@@ -492,7 +492,8 @@ router.post('/login', async (req, res) => {
         studentId: student._id,
         name: `${student.basic.firstName}`,
         fullName: `${student.basic.firstName} ${student.basic.lastName}`,
-        course: student.basic.courseName
+        course: student.basic.courseName,
+        mobileNo:student.basic.mobileNo
       }
     });
   } catch (error) {

@@ -36,7 +36,8 @@ const corsOptions = {
     'https://lms-admin.leadsoft.academy',
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE','PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials:true
 };
 server.use(cors(corsOptions))
 server.use(bodyParser.json())

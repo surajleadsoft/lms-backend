@@ -21,7 +21,7 @@ router.get('/unapplied-upcoming/:emailAddress', async (req, res) => {
 
   const today = new Date();
   const targetDate = new Date(today);
-  targetDate.setDate(today.getDate() + 1); // exactly 2 days later
+  targetDate.setDate(today.getDate() + 2); // exactly 2 days later
 
   // Create separate objects to avoid mutation
   const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
