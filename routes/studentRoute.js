@@ -5,6 +5,8 @@ const nodemailer = require('nodemailer');
 const Course = require('../models/Course')
 const path = require('path');
 const fs = require('fs');
+const Payment = require('../models/payments'); // adjust the path as needed
+
 
 async function addCreditsToExistingStudents() {
   try {
@@ -78,20 +80,76 @@ const getCourseInfo =async(courseName) => {
   }
 }
 router.get('/students/by-course/:courseName', async (req, res) => {
-  const  courseName  = req.params.courseName; 
-  
+  const courseName = req.params.courseName;
 
   if (!courseName) {
-    return res.status(400).json({ error: 'courseName is required' });
+    return res.json({ status: false, error: 'courseName is required' });
   }
 
   try {
-    const students = await Student.find({ 'basic.courseName.courseName': courseName });
-    res.json({status:true,details:students});
+    const students = await Student.aggregate([
+      {
+        $match: {
+          'basic.courseName.courseName': courseName
+        }
+      },
+      {
+        $addFields: {
+          email: '$basic.emailAddress'
+        }
+      },
+      {
+        $lookup: {
+          from: 'payments',
+          let: { studentEmail: '$basic.emailAddress' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$emailAddress', '$$studentEmail'] },
+                    { $eq: ['$paymentCourse', courseName] },
+                    { $eq: ['$status', 'Approved'] }
+                  ]
+                }
+              }
+            },
+            {
+              $group: {
+                _id: null,
+                totalPaid: { $sum: '$amountToPay' }
+              }
+            }
+          ],
+          as: 'paymentInfo'
+        }
+      },
+      {
+        $addFields: {
+          totalPaid: {
+            $ifNull: [{ $arrayElemAt: ['$paymentInfo.totalPaid', 0] }, 0]
+          }
+        }
+      },
+      {
+        $project: {
+          basic: 1,
+          parent: 1,
+          academic: 1,
+          certification: 1,
+          social: 1,
+          credits: 1,
+          totalPaid: 1
+        }
+      }
+    ]);
+
+    return res.json({ status: true, details: students });
   } catch (error) {
-    res.json({status:false, error: 'Internal Server Error', details: error.message });
+    console.error(error);
+    return res.json({ status: false, error: 'Internal Server Error', details: error.message });
   }
-})
+});
 router.post('/update-password', async (req, res) => {
   const { emailAddress, newPassword } = req.body;
 
@@ -505,13 +563,30 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.get('/student-get', async (req, res) => {  
+router.get('/student-get', async (req, res) => {
   try {
-    const students = await Student.find();
-    res.json({status:true,data:students});
+    const page = parseInt(req.query.page) || 1; // Default to page 1
+    const limit = 10;
+    const skip = (page - 1) * limit;
+
+    const students = await Student.find()
+      .sort({ 'basic.registrationDate': -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalStudents = await Student.countDocuments();
+    const totalPages = Math.ceil(totalStudents / limit);
+
+    res.json({
+      status: true,
+      currentPage: page,
+      totalPages,
+      totalStudents,
+      data: students
+    });
   } catch (err) {
-    console.log(err)
-    res.json({status:false, message: err.message });
+    console.error(err);
+    res.json({ status: false, message: err.message });
   }
 });
 router.get('/student/get/:email', async (req, res) => {

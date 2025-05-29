@@ -1,6 +1,59 @@
 const express = require('express');
 const router = express.Router();
 const Attendance = require('../models/attendanceSchema');
+const Student = require('../models/Student');
+
+const formatDate = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0'); // 0-indexed
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+router.get('/attendance-summary', async (req, res) => {
+  try {
+    const { courseName, date } = req.query;
+
+    if (!courseName || !date) {
+      return res.json({ status: false, message: 'courseName and date are required' });
+    }
+
+    const targetDate = formatDate(new Date(date));    
+
+    // Get all students enrolled in the given course
+    const students = await Student.find({ 'basic.courseName.courseName': courseName });
+
+    const emailList = students.map(s => s.basic.emailAddress);
+
+    // Get attendance records for those students on that date and course
+    const attendanceRecords = await Attendance.find({
+      emailAddress: { $in: emailList },
+      courseName: courseName,
+      date: targetDate
+    });
+
+    // Map attendance by email
+    const attendanceMap = {};
+    attendanceRecords.forEach(record => {
+      attendanceMap[record.emailAddress] = record.status === 'Present' ? 'Present' : 'Absent';
+    });
+
+    // Construct response with attendance status
+    const result = students.map(student => ({
+      fullName: `${student.basic.firstName} ${student.basic.middleName || ''} ${student.basic.lastName}`.trim(),
+      email: student.basic.emailAddress,
+      status: attendanceMap[student.basic.emailAddress] || 'Absent'
+    }));
+    const sortedResult = result.sort((a, b) => {
+      if (a.status === b.status) return 0;
+      return a.status === 'Present' ? 1 : -1;
+    });
+    res.json({ status: true, data: sortedResult });
+  } catch (error) {
+    console.error('Attendance status error:', error);
+    res.json({ status: false, message: error.message });
+  }
+});
 
 // ✅ Insert a new attendance record
 router.post('/join', async (req, res) => {

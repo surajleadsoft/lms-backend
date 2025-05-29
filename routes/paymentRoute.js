@@ -155,6 +155,31 @@ router.post('/total1', async (req, res) => {
   }
 });
 
+router.get('/payment/total-sum', async (req, res) => {
+  try {
+    const result = await Payment.aggregate([
+      {
+        $match: { status: 'Approved' } // optional: filter by status
+      },
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: '$amountToPay' }
+        }
+      }
+    ]);
+
+    const totalAmount = result[0]?.totalAmount || 0;
+
+    res.json({ status: true, totalAmount });
+  } catch (err) {
+    console.error(err);
+    res.json({ status: false, message: err.message });
+  }
+});
+
+
+
 // GET - Get payment records by courseName (paymentCourse field)
 router.post('/pay', async (req, res) => {
   try {

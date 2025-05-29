@@ -64,10 +64,13 @@ server.use('/campus',campusRoute)
 server.use('/application',applicationRoute)
 server.use('/uploads/resources', express.static('uploads/resources'));
 
-mongoose.connect(URL)
+mongoose.connect(URL, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  maxPoolSize: 10 // Controls number of concurrent DB connections
+})
   .then(() => console.log("✅ Connected to MongoDB Atlas"))
   .catch(err => console.error("❌ DB Connection Failed:", err));
-
 
 
 server.listen(8055,()=>{
