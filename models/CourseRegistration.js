@@ -28,6 +28,7 @@ const classSchema = new mongoose.Schema({
   endDate: { type: String, required: true },
   time: { type: String, required: true },
   status: { type: String, required: true },
+  isPaymentRequired:{type:String,default:true},
   sessionLink: { type: String, required: true }
 }, { _id: false });
 

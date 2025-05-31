@@ -2,10 +2,62 @@ const express = require('express');
 const router = express.Router();
 const Student = require('../models/Student');
 const nodemailer = require('nodemailer');
-const Course = require('../models/Course')
 const path = require('path');
 const fs = require('fs');
-const Payment = require('../models/payments'); // adjust the path as needed
+const Payment = require('../models/payments');
+const Course = require('../models/Course');
+
+router.get('/payment-status/:email', async (req, res) => {
+  const email = req.params.email;
+
+  try {
+    // 1. Find student with matching email
+    const student = await Student.findOne({ 'basic.emailAddress': email });
+    if (!student) return res.status(404).json({ status: false, message: 'Student not found' });
+
+    // 2. Get all enrolled courses
+    const enrolledCourses = student.basic.courseName.map(c => c.courseName);
+
+    // 3. Get all approved payments
+    const payments = await Payment.find({
+      emailAddress: email,
+      status: 'Approved'
+    });
+
+    // 4. Get course fees from Course model
+    const coursesData = await Course.find({ courseName: { $in: enrolledCourses } });
+
+    // 5. Calculate payment status
+    const courseStatus = enrolledCourses.map(courseName => {
+      const courseInfo = coursesData.find(c => c.courseName === courseName);
+      const totalFees = courseInfo?.courseFees || 0;
+
+      const paidAmount = payments
+        .filter(p => p.paymentCourse === courseName)
+        .reduce((sum, p) => sum + p.amountToPay, 0);
+
+      return {
+        courseName,
+        paymentStatus: paidAmount >= totalFees ? 'fullyPaid' : 'remaining',
+        paidAmount,
+        courseFees: totalFees
+      };
+    });
+
+    res.json({
+      status: true,
+      message: 'Payment status fetched successfully',
+      data: courseStatus
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      status: false,
+      message: 'Server error while checking payment status'
+    });
+  }
+});
 
 
 async function addCreditsToExistingStudents() {

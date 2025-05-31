@@ -18,40 +18,43 @@ router.post('/add', async (req, res) => {
 
 router.get('/unapplied-upcoming/:emailAddress', async (req, res) => {
   const { emailAddress } = req.params;
-
   const today = new Date();
-  const targetDate = new Date(today);
-  targetDate.setDate(today.getDate() + 2); // exactly 2 days later
-
-  // Create separate objects to avoid mutation
-  const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
-  const endOfDay = new Date(new Date(targetDate).setHours(23, 59, 59, 999));
+  const startOfToday = new Date(today.setHours(0, 0, 0, 0));
 
   try {
     // 1. Get all applications by the user
     const userApplications = await Application.find({ emailAddress });
 
     const appliedSet = new Set(
-      userApplications.map(app => 
+      userApplications.map(app =>
         `${app.companyName.trim().toLowerCase()}|${app.driveName.trim().toLowerCase()}|${app.position.trim().toLowerCase()}`
       )
     );
 
-    // 2. Get campuses with lastDateToApply = exactly 2 days later
-    const campuses = await Campus.find({
-      lastDateToApply: { $gte: startOfDay, $lte: endOfDay }
+    // 2. Get all campuses with lastDateToApply today or in the future
+    const upcomingCampuses = await Campus.find({
+      lastDateToApply: { $gte: startOfToday }
     });
 
-    // 3. Filter out applied ones
-    const unappliedCampuses = campuses.filter(campus => {
+    // 3. Filter out already applied campuses
+    const unappliedCampuses = upcomingCampuses.filter(campus => {
       const key = `${campus.companyName.trim().toLowerCase()}|${campus.driveName.trim().toLowerCase()}|${campus.position.trim().toLowerCase()}`;
       return !appliedSet.has(key);
     });
 
-    res.json({ status: true, data: unappliedCampuses });
+    res.json({
+      status: true,
+      message: 'Unapplied and active campuses fetched successfully',
+      data: unappliedCampuses
+    });
+
   } catch (error) {
-    console.error('Error fetching unapplied upcoming campuses:', error);
-    res.status(500).json({ status: false, error: error.message });
+    console.error('Error fetching unapplied active campuses:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Server error while fetching campuses',
+      error: error.message
+    });
   }
 });
 

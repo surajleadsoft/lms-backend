@@ -93,6 +93,17 @@ router.get('/pay/:emailAddress', async (req, res) => {
   }
 });
 
+router.get('/pay-course/:emailAddress/:courseName', async (req, res) => {
+  try {
+    const emailAddress = req.params.emailAddress
+    const courseName = req.params.courseName
+    const payments = await Payment.find({emailAddress,paymentCourse:courseName});
+    res.json({ status: true, data:payments });
+  } catch (error) {
+    res.json({ status: false, message: error.message });
+  }
+});
+
 router.post('/total', async (req, res) => {
   const { studentName, emailAddress, paymentCourse } = req.body;
 
