@@ -7,6 +7,37 @@ const fs = require('fs');
 const Payment = require('../models/payments');
 const Course = require('../models/Course');
 
+router.post('/toggle-status', async (req, res) => {
+  const { emailAddress } = req.body;
+
+  if (!emailAddress) {
+    return res.status(400).json({ message: 'Email address is required' });
+  }
+
+  try {
+    const student = await Student.findOne({ 'basic.emailAddress': emailAddress });
+
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
+
+    // Toggle the isActive status
+    student.basic.isActive = !student.basic.isActive;
+    await student.save();
+
+    res.json({
+      status:true,
+      message: `isActive status updated to ${student.basic.isActive}`,
+      studentId: student._id,
+      isActive: student.basic.isActive
+    });
+
+  } catch (error) {
+    console.error('Error toggling student status:', error);
+    res.json({status:false, message: 'Server error' });
+  }
+});
+
 router.get('/payment-status/:email', async (req, res) => {
   const email = req.params.email;
 
@@ -15,7 +46,7 @@ router.get('/payment-status/:email', async (req, res) => {
     const student = await Student.findOne({ 'basic.emailAddress': email });
     if (!student) return res.status(404).json({ status: false, message: 'Student not found' });
 
-    // 2. Get all enrolled courses
+    // 2. Get all enrolled cloginourses
     const enrolledCourses = student.basic.courseName.map(c => c.courseName);
 
     // 3. Get all approved payments
@@ -572,7 +603,7 @@ router.post('/login', async (req, res) => {
   const { userName, password } = req.body;
 
   if (!userName || !password) {
-    return res.status(400).json({
+    return res.json({
       status: false,
       message: 'Email and password are required'
     });
@@ -585,6 +616,13 @@ router.post('/login', async (req, res) => {
       return res.json({
         status: false,
         message: 'Invalid username !!'
+      });
+    }
+
+    if (!student.basic.isActive) {
+      return res.json({
+        status: false,
+        message: 'Account is inactive. Please contact support.'
       });
     }
 
@@ -603,7 +641,7 @@ router.post('/login', async (req, res) => {
         name: `${student.basic.firstName}`,
         fullName: `${student.basic.firstName} ${student.basic.lastName}`,
         course: student.basic.courseName,
-        mobileNo:student.basic.mobileNo
+        mobileNo: student.basic.mobileNo
       }
     });
   } catch (error) {
@@ -614,6 +652,7 @@ router.post('/login', async (req, res) => {
     });
   }
 });
+
 
 router.get('/student-get', async (req, res) => {
   try {
