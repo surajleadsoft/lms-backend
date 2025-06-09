@@ -57,7 +57,7 @@ const checkIfFullyPaid = async (emailAddress, paymentCourse) => {
         paymentCourse: "$_id.course",
         totalPaid: 1,
         courseFees: 1,
-        isFullyPaid: { $eq: ["$totalPaid", "$courseFees"] }
+        isFullyPaid: { $gte: ["$totalPaid", "$courseFees"] } // ✅ change here
       }
     }
   ]);
