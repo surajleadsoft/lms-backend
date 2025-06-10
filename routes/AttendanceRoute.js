@@ -18,42 +18,60 @@ router.get('/attendance-summary', async (req, res) => {
       return res.json({ status: false, message: 'courseName and date are required' });
     }
 
-    const targetDate = formatDate(new Date(date));    
+    const targetDate = new Date(date);
 
-    // Get all students enrolled in the given course
-    const students = await Student.find({ 'basic.courseName.courseName': courseName });
-
+    // Get all active students in the given course
+    const students = await Student.find({
+      'basic.courseName.courseName': courseName,
+      'basic.isActive': true
+    });
+    
     const emailList = students.map(s => s.basic.emailAddress);
-
     // Get attendance records for those students on that date and course
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
     const attendanceRecords = await Attendance.find({
       emailAddress: { $in: emailList },
       courseName: courseName,
-      date: targetDate
+      date: { $gte: startOfDay, $lte: endOfDay },
     });
 
-    // Map attendance by email
+    // Map attendance by email with both status and inTime
     const attendanceMap = {};
     attendanceRecords.forEach(record => {
-      attendanceMap[record.emailAddress] = record.status === 'Present' ? 'Present' : 'Absent';
+      attendanceMap[record.emailAddress] = {
+        status: record.status === 'Present' ? 'Present' : 'Absent',
+        inTime: record.inTime || [],
+      };
     });
 
-    // Construct response with attendance status
-    const result = students.map(student => ({
-      fullName: `${student.basic.firstName} ${student.basic.middleName || ''} ${student.basic.lastName}`.trim(),
-      email: student.basic.emailAddress,
-      status: attendanceMap[student.basic.emailAddress] || 'Absent'
-    }));
+    // Construct response
+    const result = students.map(student => {
+      const attendanceInfo = attendanceMap[student.basic.emailAddress];
+      return {
+        fullName: `${student.basic.firstName} ${student.basic.middleName || ''} ${student.basic.lastName}`.trim(),
+        email: student.basic.emailAddress,
+        status: attendanceInfo?.status || 'Absent',
+        inTime: attendanceInfo?.inTime || [],
+      };
+    }); 
+
+    // Sort by status
     const sortedResult = result.sort((a, b) => {
       if (a.status === b.status) return 0;
       return a.status === 'Present' ? 1 : -1;
     });
+
     res.json({ status: true, data: sortedResult });
   } catch (error) {
     console.error('Attendance status error:', error);
     res.json({ status: false, message: error.message });
   }
 });
+
 
 // ✅ Insert a new attendance record
 router.post('/join', async (req, res) => {
