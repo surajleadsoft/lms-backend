@@ -40,7 +40,8 @@ router.get('/courses-with-count', async (req, res) => {
     const courseData = await Promise.all(
       courses.map(async (course) => {
         const count = await Student.countDocuments({
-          'basic.courseName.courseName': course.courseName
+          'basic.courseName.courseName': course.courseName,
+          'basic.isActive':true
         });
 
         return {
@@ -82,7 +83,8 @@ router.get('/courses-with-count/:courseName', async (req, res) => {
     const courseData = await Promise.all(
       courses.map(async (course) => {
         const count = await Student.countDocuments({
-          'basic.courseName.courseName': course.courseName
+          'basic.courseName.courseName': course.courseName,
+          'basic.isActive':true
         });
 
         return {

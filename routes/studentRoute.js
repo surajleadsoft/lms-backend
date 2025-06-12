@@ -656,21 +656,30 @@ router.post('/login', async (req, res) => {
 
 router.get('/student-get', async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1; // Default to page 1
-    const limit = 10;
+    const getAll = req.query.all === 'true'; // Check if user wants all data
+    const page = parseInt(req.query.page) || 1;
+    const limit = 12;
     const skip = (page - 1) * limit;
 
-    const students = await Student.find()
-      .sort({ 'basic.registrationDate': -1 })
-      .skip(skip)
-      .limit(limit);
+    let students, totalStudents, totalPages;
 
-    const totalStudents = await Student.countDocuments();
-    const totalPages = Math.ceil(totalStudents / limit);
+    if (getAll) {
+      students = await Student.find().sort({ 'basic.registrationDate': -1 });
+      totalStudents = students.length;
+      totalPages = 1;
+    } else {
+      students = await Student.find()
+        .sort({ 'basic.registrationDate': -1 })
+        .skip(skip)
+        .limit(limit);
+
+      totalStudents = await Student.countDocuments();
+      totalPages = Math.ceil(totalStudents / limit);
+    }
 
     res.json({
       status: true,
-      currentPage: page,
+      currentPage: getAll ? 1 : page,
       totalPages,
       totalStudents,
       data: students
@@ -680,6 +689,7 @@ router.get('/student-get', async (req, res) => {
     res.json({ status: false, message: err.message });
   }
 });
+
 router.get('/student/get/:email', async (req, res) => {
   const email = req.params.email;
 
