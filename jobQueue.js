@@ -3,6 +3,7 @@ const fs = require('fs-extra');
 const { exec } = require('child_process');
 const path = require('path');
 const { v4: uuid } = require('uuid');
+const { performance } = require('perf_hooks');
 
 const codeQueue = new Queue('code-queue', {
   redis: { host: '127.0.0.1', port: 6379 },
@@ -38,8 +39,8 @@ codeQueue.process(async (job, done) => {
 
   try {
     await fs.ensureDir(tempDir);
-    await fs.writeFile(codeFile, code.slice(0, 5000)); // limit
-    await fs.writeFile(inputFile, input.slice(0, 1024));
+    await fs.writeFile(codeFile, code.slice(0, 5000)); // limit code size
+    await fs.writeFile(inputFile, input.slice(0, 1024)); // limit input size
 
     const mountDir = `/app/${id}`;
     const commands = {
@@ -52,11 +53,36 @@ codeQueue.process(async (job, done) => {
 
     const runCmd = `docker run --rm --network none -v ${tempDir}:${mountDir} -w ${mountDir} --memory=100m --cpus=0.5 ${IMAGE_MAP[language]} "${commands[language]}"`;
 
+    const start = performance.now();
+
     exec(runCmd, { timeout: 7000 }, async (err, stdout, stderr) => {
-      await fs.remove(tempDir);
-      logToFile(`[${language}] Output: ${stdout || stderr}`);
-      if (err) return done(null, { output: stderr || err.message });
-      done(null, { output: stdout });
+      const end = performance.now();
+      const executionTime = `${(end - start).toFixed(2)} ms`;
+
+      await fs.remove(tempDir); // clean up
+
+      let output = stdout.trim();
+      let errorOutput = stderr.trim();
+      let response = { executionTime };
+
+      if (err) {
+        response.output = errorOutput || err.message;
+        response.status = "error";
+        logToFile(`[${language}] ❌ ERROR: ${response.output}`);
+        return done(null, response);
+      }
+
+      if (errorOutput) {
+        response.output = errorOutput;
+        response.status = "error";
+        logToFile(`[${language}] ⚠️ STDERR: ${response.output}`);
+        return done(null, response);
+      }
+
+      response.output = output;
+      response.status = "success";
+      logToFile(`[${language}] ✅ Output: ${response.output}`);
+      return done(null, response);
     });
 
   } catch (err) {
