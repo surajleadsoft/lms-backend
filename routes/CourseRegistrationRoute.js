@@ -103,6 +103,27 @@ router.put('/courses/:id', async (req, res) => {
     res.status(400).json({ message: 'Failed to update course', error: error.message });
   }
 });
+// router.get('/classes/:courseName', async (req, res) => {
+//   const courseName = req.params.courseName;
+//   try {
+//     const course = await Course.findOne({ courseName });
+
+//     if (!course) {
+//       return res.json({ status: false, message: 'Course not found' });
+//     }
+
+//     // Add courseName to each class object
+//     const classWithCourseName = course.classes.map(cls => ({
+//       ...cls.toObject(),
+//       courseName
+//     }));
+//     res.json({ status: true, data: classWithCourseName });
+//   } catch (error) {
+//     res.json({ status: false, message: 'Server Error', error });
+//   }
+// });
+const dayjs = require('dayjs');
+
 router.get('/classes/:courseName', async (req, res) => {
   const courseName = req.params.courseName;
   try {
@@ -112,16 +133,41 @@ router.get('/classes/:courseName', async (req, res) => {
       return res.json({ status: false, message: 'Course not found' });
     }
 
-    // Add courseName to each class object
-    const classWithCourseName = course.classes.map(cls => ({
-      ...cls.toObject(),
-      courseName
-    }));
-    res.json({ status: true, data: classWithCourseName });
+    const today = dayjs();
+
+    const filteredAndSortedClasses = course.classes
+      .map(cls => {
+        const start = dayjs(cls.startDate);
+        const end = dayjs(cls.endDate);
+        const isCompleted = end.isBefore(today, 'day') || end.isSame(today, 'day');
+        return {
+          ...cls.toObject(),
+          courseName,
+          isCompleted,
+          startDate: cls.startDate,
+          endDate: cls.endDate
+        };
+      })
+      .filter(cls => {
+        const start = dayjs(cls.startDate);
+        const end = dayjs(cls.endDate);
+        return (
+          !cls.isCompleted &&
+          today.isAfter(start) &&
+          today.isBefore(end.add(1, 'day'))
+        );
+      })
+      .sort((a, b) =>
+        dayjs(b.time, 'HH:mm').diff(dayjs(a.time, 'HH:mm'))
+      );
+
+    return res.json({ status: true, data: filteredAndSortedClasses });
   } catch (error) {
-    res.json({ status: false, message: 'Server Error', error });
+    console.error(error);
+    return res.status(500).json({ status: false, message: 'Server Error', error });
   }
 });
+
 router.post('/register-student', async (req, res) => {
   try {
     const {collegeName,courseName,education,emailAddress,fullName,gender,mobileNo} = req.body
