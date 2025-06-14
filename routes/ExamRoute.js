@@ -66,6 +66,7 @@ router.get('/exam/full/:examName/:category', async (req, res) => {
       category,
       totalQuestions,
       totalDuration,
+      qualificationCriteria: exam.qualificationCriteria, // ✅ Added here
       sectionNames,
       sections: fullSections,
     };
@@ -77,6 +78,7 @@ router.get('/exam/full/:examName/:category', async (req, res) => {
     return res.status(500).json({ status: false, error: 'Internal Server Error' });
   }
 });
+
 
 
 // Get all exams
