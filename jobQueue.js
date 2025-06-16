@@ -7,6 +7,12 @@ const { performance } = require('perf_hooks');
 
 const codeQueue = new Queue('code-queue', {
   redis: { host: '127.0.0.1', port: 6379 },
+  defaultJobOptions: {
+    removeOnComplete: true, // keep Redis clean
+    removeOnFail: false,
+    timeout: 10000,          // job-level timeout safeguard
+    attempts: 1
+  }
 });
 
 const FILE_NAMES = {
@@ -25,24 +31,33 @@ const IMAGE_MAP = {
   js: 'lang-js',
 };
 
+const MAX_CODE_LENGTH = 5000;
+const MAX_INPUT_LENGTH = 1024;
+const CONTAINER_MEM = '100m';
+const CONTAINER_CPU = '0.5';
+
 const logToFile = (msg) => {
-  const log = `[${new Date().toISOString()}] ${msg}\n`;
-  fs.appendFileSync('log.txt', log);
+  fs.appendFile('log.txt', `[${new Date().toISOString()}] ${msg}\n`).catch(() => {});
 };
 
-codeQueue.process(async (job, done) => {
+codeQueue.process(10, async (job, done) => {
   const { language, code, input } = job.data;
   const id = uuid();
   const tempDir = path.join(__dirname, 'code', id);
   const codeFile = path.join(tempDir, FILE_NAMES[language]);
   const inputFile = path.join(tempDir, 'input.txt');
+  const mountDir = `/app/${id}`;
 
   try {
-    await fs.ensureDir(tempDir);
-    await fs.writeFile(codeFile, code.slice(0, 5000)); // limit code size
-    await fs.writeFile(inputFile, input.slice(0, 1024)); // limit input size
+    const safeCode = code?.slice(0, MAX_CODE_LENGTH) || '';
+    const safeInput = input?.slice(0, MAX_INPUT_LENGTH) || '';
 
-    const mountDir = `/app/${id}`;
+    await fs.ensureDir(tempDir);
+    await Promise.all([
+      fs.writeFile(codeFile, safeCode),
+      fs.writeFile(inputFile, safeInput)
+    ]);
+
     const commands = {
       cpp: `g++ Main.cpp -o a.out && ./a.out < input.txt`,
       c: `gcc Main.c -o a.out && ./a.out < input.txt`,
@@ -51,43 +66,43 @@ codeQueue.process(async (job, done) => {
       js: `node Main.js < input.txt`,
     };
 
-    const runCmd = `docker run --rm --network none -v ${tempDir}:${mountDir} -w ${mountDir} --memory=100m --cpus=0.5 ${IMAGE_MAP[language]} "${commands[language]}"`;
+    const dockerCmd = `docker run --rm --network none --memory=${CONTAINER_MEM} --cpus=${CONTAINER_CPU} -v "${tempDir}":"${mountDir}" -w "${mountDir}" ${IMAGE_MAP[language]} "${commands[language]}"`;
 
     const start = performance.now();
 
-    exec(runCmd, { timeout: 7000 }, async (err, stdout, stderr) => {
+    exec(dockerCmd, { timeout: 7000 }, async (err, stdout, stderr) => {
       const end = performance.now();
       const executionTime = `${(end - start).toFixed(2)} ms`;
+      await fs.remove(tempDir).catch(() => {});
 
-      await fs.remove(tempDir); // clean up
-
-      let output = stdout.trim();
-      let errorOutput = stderr.trim();
-      let response = { executionTime };
+      const response = { executionTime };
 
       if (err) {
-        response.output = errorOutput || err.message;
         response.status = "error";
+        response.output = stderr.trim() || err.message;
         logToFile(`[${language}] ❌ ERROR: ${response.output}`);
         return done(null, response);
       }
 
-      if (errorOutput) {
-        response.output = errorOutput;
+      const stderrOut = stderr.trim();
+      const stdoutOut = stdout.trim();
+
+      if (stderrOut) {
         response.status = "error";
+        response.output = stderrOut;
         logToFile(`[${language}] ⚠️ STDERR: ${response.output}`);
-        return done(null, response);
+      } else {
+        response.status = "success";
+        response.output = stdoutOut;
+        logToFile(`[${language}] ✅ Output: ${response.output}`);
       }
 
-      response.output = output;
-      response.status = "success";
-      logToFile(`[${language}] ✅ Output: ${response.output}`);
       return done(null, response);
     });
-
   } catch (err) {
-    await fs.remove(tempDir);
-    done(new Error('Execution failed: ' + err.message));
+    await fs.remove(tempDir).catch(() => {});
+    logToFile(`[${language}] ❌ Uncaught Exception: ${err.message}`);
+    return done(new Error('Execution failed: ' + err.message));
   }
 });
 
