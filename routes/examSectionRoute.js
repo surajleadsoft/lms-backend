@@ -154,7 +154,7 @@ router.get('/exam-summary', async (req, res) => {
           examName,
           markReceived: "-",
           totalMarks: "-",
-          percentage: "-",
+          percentage: "0",
           totalTimeTaken: "-",
           status: "Absent",
           sections: []
