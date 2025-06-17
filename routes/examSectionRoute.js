@@ -4,6 +4,7 @@ const ExamSection = require('../models/examSection'); // Adjust path as per your
 const Exams = require('../models/Exams'); // path may vary
 const Question = require('../models/Question'); 
 const Category = require('../models/Categories'); 
+const Student = require('../models/Student')
 
 function addTimes(time1, time2) {
   const [h1, m1] = time1.split(':').map(Number);
@@ -105,18 +106,66 @@ router.get('/exam-summary', async (req, res) => {
   const { examName } = req.query;
 
   if (!examName) {
-    return res.status(400).json({ error: "examName is required" });
+    return res.json({status:false, error: "examName is required" });
   }
 
   try {
-    const students = await ExamSection.find({ examName });
+    const exam = await Exams.findOne({ examName });
 
-    const results = students.map(student => {
+    if (!exam) {
+      return res.json({ status: false, message: "Exam not found" });
+    }
+
+    const examCategory = exam.category;
+    const categoryExam = await Category.findOne({categoryName:examCategory})
+    if(!categoryExam){
+      return res.json({status:false,message:"Category not found"})
+    }
+
+    // Fetch all students enrolled in this category
+    const allStudents = await Student.find({ "basic.courseName.courseName": categoryExam.courseName,"basic.isActive":true });
+
+    // Fetch all exam records for the selected exam
+    const attemptedStudents = await ExamSection.find({ examName });
+
+    const attemptedMap = new Map();
+    attemptedStudents.forEach(student => {
+      attemptedMap.set(student.emailAddress, student);
+    });
+
+    const addTimes = (time1, time2) => {
+      const [h1, m1] = time1.split(":").map(Number);
+      const [h2, m2] = time2.split(":").map(Number);
+      let totalMinutes = h1 * 60 + m1 + h2 * 60 + m2;
+      let hours = Math.floor(totalMinutes / 60);
+      let minutes = totalMinutes % 60;
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    };
+
+    const results = allStudents.map(student => {
+      const fullName = `${student.basic.firstName} ${student.basic.lastName}`.trim();
+      const emailAddress = student.basic.emailAddress;
+      const examRecord = attemptedMap.get(emailAddress);
+
+      if (!examRecord) {
+        return {
+          fullName,
+          emailAddress,
+          examName,
+          markReceived: "-",
+          totalMarks: "-",
+          percentage: "-",
+          totalTimeTaken: "-",
+          status: "Absent",
+          sections: []
+        };
+      }
+
       let totalMarks = 0;
       let markReceived = 0;
       let totalTimeTaken = "00:00";
 
-      const sections = (student.sections || []).map(section => {
+      const sections = (examRecord.sections || []).map(section => {
         const correct = (section.questions || []).filter(q => q.status === 'correct').length;
         const secTotal = section.totalMarks || 0;
         totalMarks += secTotal;
@@ -136,23 +185,78 @@ router.get('/exam-summary', async (req, res) => {
         : "0.00%";
 
       return {
-        fullName: student.fullName,
+        fullName,
+        emailAddress,
+        examName,
         markReceived,
-        emailAddress: student.emailAddress,
-        examName: student.examName,
-        totalTimeTaken,
         totalMarks,
         percentage,
+        totalTimeTaken,
+        status: "Present",
         sections
       };
     });
 
-    res.json({status:true,data:results});
+    res.json({ status: true, data: results });
   } catch (err) {
     console.error(err);
-    res.json({status:false, error: "Server error" });
+    res.status(500).json({ status: false, error: "Server error" });
   }
 });
+
+// router.get('/exam-summary', async (req, res) => {
+//   const { examName } = req.query;
+
+//   if (!examName) {
+//     return res.status(400).json({ error: "examName is required" });
+//   }
+
+//   try {
+//     const students = await ExamSection.find({ examName });
+
+//     const results = students.map(student => {
+//       let totalMarks = 0;
+//       let markReceived = 0;
+//       let totalTimeTaken = "00:00";
+
+//       const sections = (student.sections || []).map(section => {
+//         const correct = (section.questions || []).filter(q => q.status === 'correct').length;
+//         const secTotal = section.totalMarks || 0;
+//         totalMarks += secTotal;
+//         markReceived += correct;
+//         totalTimeTaken = addTimes(totalTimeTaken, section.timeTaken || "00:00");
+
+//         return {
+//           sectionName: section.sectionName,
+//           timeTaken: section.timeTaken,
+//           totalMarks: secTotal,
+//           marksReceived: correct
+//         };
+//       });
+
+//       const percentage = totalMarks > 0
+//         ? `${((markReceived / totalMarks) * 100).toFixed(2)}%`
+//         : "0.00%";
+
+//       return {
+//         fullName: student.fullName,
+//         markReceived,
+//         emailAddress: student.emailAddress,
+//         examName: student.examName,
+//         totalTimeTaken,
+//         totalMarks,
+//         percentage,
+//         sections
+//       };
+//     });
+
+//     res.json({status:true,data:results});
+//   } catch (err) {
+//     console.error(err);
+//     res.json({status:false, error: "Server error" });
+//   }
+// });
+
 
 // 1. Insert a new exam section record
 router.post('/addSection', async (req, res) => {
