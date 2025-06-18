@@ -63,4 +63,35 @@ router.get('/all', async (req, res) => {
     }
 });
 
+router.get('/all-chapter', async (req, res) => {
+    try {
+        const chapters = await Chapter.find();
+
+        const groupedData = {};
+
+        chapters.forEach(chapter => {
+            const subject = chapter.subjectName;
+            const chapterName = chapter.chapterName;
+
+            if (!groupedData[subject]) {
+                groupedData[subject] = [];
+            }
+
+            groupedData[subject].push(chapterName);
+        });
+
+        // Convert groupedData object into desired array format
+        const result = Object.entries(groupedData).map(([subjectName, chapterName]) => ({
+            subjectName,
+            chapterName
+        }));
+
+        return res.json({ status: true, message: 'Chapters fetched successfully', data: result });
+    } catch (err) {
+        console.error(err);
+        return res.json({ status: false, message: 'Failed to fetch chapters' });
+    }
+});
+
+
 module.exports = router;
