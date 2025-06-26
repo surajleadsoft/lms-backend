@@ -36,7 +36,8 @@ router.get('/check-all-payments/:email', async (req, res) => {
       // Get all payments for this course by the student
       const payments = await Payment.find({
         emailAddress: email,
-        paymentCourse: courseName
+        paymentCourse: courseName,
+        status:'Approved'
       });
 
       const totalPaid = payments.reduce((sum, p) => sum + p.amountToPay, 0);

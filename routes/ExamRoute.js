@@ -16,68 +16,68 @@ router.post('/exam', async (req, res) => {
 });
 
 // exam.controller.js or routes.js
-router.get('/exam/full/:examName/:category', async (req, res) => {
-  const { examName, category } = req.params;
+  router.get('/exam/full/:examName/:category', async (req, res) => {
+    const { examName, category } = req.params;
 
-  try {
-    // Step 1: Fetch exam details
-    const exam = await Exam.findOne({ examName, category });
-    if (!exam || !exam.sections) {
-      return res.status(404).json({ status: false, message: 'Exam not found or sections missing' });
+    try {
+      // Step 1: Fetch exam details
+      const exam = await Exam.findOne({ examName, category });
+      if (!exam || !exam.sections) {
+        return res.status(404).json({ status: false, message: 'Exam not found or sections missing' });
+      }
+
+      const fullSections = [];
+
+      // Step 2: Populate questions per section
+      for (const section of exam.sections) {
+        const { subjectName, chapterName, noOfquestions } = section;
+
+        const questions = await Question.aggregate([
+          {
+            $match: { subjectName, chapterName }
+          },
+          {
+            $sample: { size: parseInt(noOfquestions) }
+          }
+        ]);
+
+        const formattedQuestions = questions.map(q => ({
+          ...q,
+          answer: q.answer ? Buffer.from(q.answer.toString()).toString('base64') : '',
+          userAnswer: '',
+        }));
+
+        fullSections.push({
+          sectionName: section.sectionName,
+          duration: section.duration,
+          noOfquestions: section.noOfquestions,
+          totalMarks: section.totalMarks,
+          questions: formattedQuestions,
+        });
+      }
+
+      // Step 3: Compose final exam object
+      const totalQuestions = fullSections.reduce((sum, s) => sum + s.noOfquestions, 0);
+      const totalDuration = fullSections.reduce((sum, s) => sum + s.duration, 0);
+      const sectionNames = fullSections.map(s => s.sectionName).join(', ');
+
+      const finalExamObj = {
+        examName,
+        category,
+        totalQuestions,
+        totalDuration,
+        qualificationCriteria: exam.qualificationCriteria, // ✅ Added here
+        sectionNames,
+        sections: fullSections,
+      };
+
+      return res.json({ status: true, data: finalExamObj });
+
+    } catch (error) {
+      console.error('Error fetching full exam:', error);
+      return res.status(500).json({ status: false, error: 'Internal Server Error' });
     }
-
-    const fullSections = [];
-
-    // Step 2: Populate questions per section
-    for (const section of exam.sections) {
-      const { subjectName, chapterName, noOfquestions } = section;
-
-      const questions = await Question.aggregate([
-        {
-          $match: { subjectName, chapterName }
-        },
-        {
-          $sample: { size: parseInt(noOfquestions) }
-        }
-      ]);
-
-      const formattedQuestions = questions.map(q => ({
-        ...q,
-        answer: q.answer ? Buffer.from(q.answer.toString()).toString('base64') : '',
-        userAnswer: '',
-      }));
-
-      fullSections.push({
-        sectionName: section.sectionName,
-        duration: section.duration,
-        noOfquestions: section.noOfquestions,
-        totalMarks: section.totalMarks,
-        questions: formattedQuestions,
-      });
-    }
-
-    // Step 3: Compose final exam object
-    const totalQuestions = fullSections.reduce((sum, s) => sum + s.noOfquestions, 0);
-    const totalDuration = fullSections.reduce((sum, s) => sum + s.duration, 0);
-    const sectionNames = fullSections.map(s => s.sectionName).join(', ');
-
-    const finalExamObj = {
-      examName,
-      category,
-      totalQuestions,
-      totalDuration,
-      qualificationCriteria: exam.qualificationCriteria, // ✅ Added here
-      sectionNames,
-      sections: fullSections,
-    };
-
-    return res.json({ status: true, data: finalExamObj });
-
-  } catch (error) {
-    console.error('Error fetching full exam:', error);
-    return res.status(500).json({ status: false, error: 'Internal Server Error' });
-  }
-});
+  });
 
 
 
