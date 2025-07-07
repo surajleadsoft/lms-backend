@@ -16,70 +16,92 @@ router.post('/exam', async (req, res) => {
 });
 
 // exam.controller.js or routes.js
-  router.get('/exam/full/:examName/:category', async (req, res) => {
-    const { examName, category } = req.params;
+router.get('/exam/full/:examName/:category', async (req, res) => {
+  const { examName, category } = req.params;
 
-    try {
-      // Step 1: Fetch exam details
-      const exam = await Exam.findOne({ examName, category });
-      if (!exam || !exam.sections) {
-        return res.status(404).json({ status: false, message: 'Exam not found or sections missing' });
+  try {
+    const exam = await Exam.findOne({ examName, category });
+    if (!exam || !Array.isArray(exam.sections)) {
+      return res.json({ status: false, message: 'Exam not found or sections missing' });
+    }
+
+    const fullSections = [];
+
+    for (const section of exam.sections) {
+      const { sectionName, duration, totalMarks, chapters } = section;
+
+      if (!sectionName || !Array.isArray(chapters)) {
+        console.warn(`⚠️ Skipping section due to invalid structure:`, section);
+        continue;
       }
 
-      const fullSections = [];
+      let sectionQuestions = [];
+      let sectionTotalQuestions = 0;
 
-      // Step 2: Populate questions per section
-      for (const section of exam.sections) {
-        const { subjectName, chapterName, noOfquestions } = section;
+      for (const chapter of chapters) {
+        const { subjectName, chapterName, noOfquestions } = chapter;
+
+        if (!subjectName || !chapterName || !noOfquestions || isNaN(noOfquestions)) {
+          console.warn(`⚠️ Invalid chapter in section "${sectionName}":`, chapter);
+          continue;
+        }
+
+        const sampleSize = parseInt(noOfquestions);
 
         const questions = await Question.aggregate([
-          {
-            $match: { subjectName, chapterName }
-          },
-          {
-            $sample: { size: parseInt(noOfquestions) }
-          }
+          { $match: { subjectName, chapterName } },
+          { $sample: { size: sampleSize } }
         ]);
 
         const formattedQuestions = questions.map(q => ({
-          ...q,
+          _id: q._id,
+          questionText: q.questionText,
+          options: q.options,
+          difficultyLevel: q.difficultyLevel,
+          companyTags: q.companyTags,
           answer: q.answer ? Buffer.from(q.answer.toString()).toString('base64') : '',
-          userAnswer: '',
+          userAnswer: ''
         }));
 
-        fullSections.push({
-          sectionName: section.sectionName,
-          duration: section.duration,
-          noOfquestions: section.noOfquestions,
-          totalMarks: section.totalMarks,
-          questions: formattedQuestions,
-        });
+        sectionQuestions.push(...formattedQuestions);
+        sectionTotalQuestions += formattedQuestions.length;
       }
 
-      // Step 3: Compose final exam object
-      const totalQuestions = fullSections.reduce((sum, s) => sum + s.noOfquestions, 0);
-      const totalDuration = fullSections.reduce((sum, s) => sum + s.duration, 0);
-      const sectionNames = fullSections.map(s => s.sectionName).join(', ');
-
-      const finalExamObj = {
-        examName,
-        category,
-        totalQuestions,
-        totalDuration,
-        qualificationCriteria: exam.qualificationCriteria, // ✅ Added here
-        sectionNames,
-        sections: fullSections,
-      };
-
-      return res.json({ status: true, data: finalExamObj });
-
-    } catch (error) {
-      console.error('Error fetching full exam:', error);
-      return res.status(500).json({ status: false, error: 'Internal Server Error' });
+      fullSections.push({
+        sectionName,
+        duration,
+        totalMarks,
+        totalQuestions: sectionTotalQuestions,
+        questions: sectionQuestions
+      });
     }
-  });
 
+    const totalQuestions = fullSections.reduce((sum, sec) => {
+      return sum + (typeof sec.totalQuestions === 'number' ? sec.totalQuestions : 0);
+    }, 0);
 
+    const totalDuration = fullSections.reduce((sum, sec) => {
+      return sum + (typeof sec.duration === 'number' ? sec.duration : 0);
+    }, 0);
+
+    const sectionNames = fullSections.map(sec => sec.sectionName).join(', ');
+
+    const finalExamObj = {
+      examName,
+      category,
+      qualificationCriteria: exam.qualificationCriteria,
+      sectionNames,
+      totalQuestions,
+      totalDuration,
+      sections: fullSections
+    };
+
+    return res.json({ status: true, data: finalExamObj });
+  } catch (error) {
+    console.error('❌ Error fetching full exam:', error);
+    return res.json({ status: false, error: 'Internal Server Error' });
+  }
+});
 
 // Get all exams
 router.get('/exam', async (req, res) => {
@@ -87,7 +109,7 @@ router.get('/exam', async (req, res) => {
     const exams = await Exam.aggregate([
       {
         $lookup: {
-          from: 'examsections', 
+          from: 'examsections',
           localField: 'examName',
           foreignField: 'examName',
           as: 'attempts'
@@ -101,18 +123,15 @@ router.get('/exam', async (req, res) => {
       {
         $project: {
           __v: 0,
-          'attempts': 0 
+          'attempts': 0
         }
       }
     ]);
 
-    res.json({
-      status: true,
-      data: exams
-    });
+    res.json({ status: true, data: exams });
   } catch (error) {
     console.error('Error fetching exam records with attempts:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.json({ status: false, message: 'Server error' });
   }
 });
 
@@ -128,6 +147,7 @@ router.get('/exam/:id', async (req, res) => {
     res.json({ status: false, message: 'Error fetching exam', error: error.message });
   }
 });
+
 router.delete('/exam/:id', async (req, res) => {
   try {
     const exam = await Exam.findByIdAndDelete(req.params.id);
@@ -136,16 +156,16 @@ router.delete('/exam/:id', async (req, res) => {
     }
     res.json({ status: true, message: 'Exam deleted successfully', data: exam });
   } catch (error) {
-    res.json({ status: false, message: 'Error fetching exam', error: error.message });
+    res.json({ status: false, message: 'Error deleting exam', error: error.message });
   }
 });
-// Get exam by ID
+
 router.get('/exam/by-exam-name/:examName/:category', async (req, res) => {
   try {
-    const examName = req.params.examName
-    const category = req.params.category
-    const exam = await Exam.find({examName,category});
-    if (!exam) {
+    const examName = req.params.examName;
+    const category = req.params.category;
+    const exam = await Exam.find({ examName, category });
+    if (!exam || exam.length === 0) {
       return res.json({ status: false, message: 'Exam not found' });
     }
     res.json({ status: true, message: 'Exam fetched successfully', data: exam[0] });
@@ -153,18 +173,17 @@ router.get('/exam/by-exam-name/:examName/:category', async (req, res) => {
     res.json({ status: false, message: 'Error fetching exam', error: error.message });
   }
 });
+
 router.get('/by-category/:category', async (req, res) => {
   try {
     const category = req.params.category;
-    const { email } = req.query; // Get email from query parameter
+    const { email } = req.query;
 
     const exams = await Exam.find({ category });
-
     if (!exams || exams.length === 0) {
       return res.json({ status: false, message: 'No exams found for this category' });
     }
 
-    // For each exam, check if the email has attempted it
     const examsWithAttemptStatus = await Promise.all(
       exams.map(async (exam) => {
         const isAttempted = await ExamSection.exists({
@@ -183,7 +202,6 @@ router.get('/by-category/:category', async (req, res) => {
       message: 'Exams fetched successfully',
       data: examsWithAttemptStatus
     });
-
   } catch (error) {
     res.json({
       status: false,

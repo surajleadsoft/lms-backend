@@ -6,7 +6,108 @@ const path = require('path');
 const fs = require('fs');
 const Payment = require('../models/payments');
 const Course = require('../models/Course');
+const Attendance = require('../models/attendanceSchema');
+const ExamSection = require('../models/examSection'); // make sure it's imported
 
+router.get('/get-ranked-students', async (req, res) => {
+  try {
+    const students = await Student.find({ 'basic.isActive': true });
+    const allAttendance = await Attendance.find();
+    const allTests = await ExamSection.find();
+
+    // Step 1: Attendance mapping
+    const attendanceMap = {};
+    allAttendance.forEach(entry => {
+      const email = entry.emailAddress;
+      if (!attendanceMap[email]) {
+        attendanceMap[email] = { total: 0, present: 0 };
+      }
+      attendanceMap[email].total += 1;
+      if (entry.status.toLowerCase() === 'present') {
+        attendanceMap[email].present += 1;
+      }
+    });
+
+    // Step 2: Test score mapping
+    const testScoreMap = {};
+    allTests.forEach(entry => {
+      const email = entry.emailAddress;
+      if (!testScoreMap[email]) testScoreMap[email] = 0;
+
+      entry.sections.forEach(section => {
+        section.questions.forEach(q => {
+          if (q.userAnswer && q.userAnswer === q.answer) {
+            testScoreMap[email] += 1;
+          }
+        });
+      });
+    });
+
+    // Step 3: Combine student data
+    const combinedData = students.map((student) => {
+      const email = student.basic.emailAddress;
+      const { firstName, lastName } = student.basic;
+      const credits = student.credits || 0;
+      const attendance = attendanceMap[email] || { total: 0, present: 0 };
+      const percentage = attendance.total > 0
+        ? Math.round((attendance.present / attendance.total) * 100)
+        : 0;
+
+      const testScore = testScoreMap[email] || 0;
+
+      return {
+        studentName: `${firstName} ${lastName}`,
+        emailAddress: email,
+        attendancePercentage: percentage,
+        overallCredits: credits,
+        testScore: testScore
+      };
+    });
+
+    // Step 4: Rank by Attendance
+    const attendanceSorted = [...combinedData].sort((a, b) => b.attendancePercentage - a.attendancePercentage);
+    attendanceSorted.forEach((student, index) => {
+      student.attendanceRank = index + 1;
+    });
+
+    // Step 5: Rank by Test Score
+    const testSorted = [...combinedData].sort((a, b) => b.testScore - a.testScore);
+    testSorted.forEach((student, index) => {
+      student.testRank = index + 1;
+    });
+
+    // Step 6: Rank by Credits (Overall Rank)
+    const creditsSorted = [...combinedData].sort((a, b) => b.overallCredits - a.overallCredits);
+    creditsSorted.forEach((student, index) => {
+      student.overallRank = index + 1;
+
+      // Assign badge
+      if (index === 0) student.badge = 'gold';
+      else if (index === 1) student.badge = 'silver';
+      else if (index === 2) student.badge = 'bronze';
+      else student.badge = 'normal';
+    });
+
+    // Step 7: Return final structure
+    const finalList = creditsSorted.map(student => ({
+      rankNo: student.overallRank,
+      studentName: student.studentName,
+      attendancePercentage: student.attendancePercentage,
+      attendanceRank: student.attendanceRank,
+      overallCredits: student.overallCredits,
+      overallRank: student.overallRank,
+      badge: student.badge,
+      testScore: student.testScore,
+      testRank: student.testRank,
+    }));
+
+    res.json({ status: true, message: finalList });
+
+  } catch (error) {
+    console.error('Error generating ranks:', error);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
 router.post('/toggle-status', async (req, res) => {
   const { emailAddress } = req.body;
 
@@ -224,6 +325,11 @@ router.get('/students/by-course/:courseName', async (req, res) => {
           credits: 1,
           totalPaid: 1
         }
+      },
+      {
+        $sort: {
+          'basic.isActive': -1 // Sort by isActive in descending order (true first)
+        }
       }
     ]);
 
@@ -233,6 +339,7 @@ router.get('/students/by-course/:courseName', async (req, res) => {
     return res.json({ status: false, error: 'Internal Server Error', details: error.message });
   }
 });
+
 router.post('/update-password', async (req, res) => {
   const { emailAddress, newPassword } = req.body;
 
@@ -633,6 +740,13 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    // ✅ Birthday check
+    const dob = new Date(student.basic.DateOfBirth);
+    const today = new Date();
+
+    const isBirthdayToday =
+      dob.getDate() === today.getDate() && dob.getMonth() === today.getMonth();
+
     return res.json({
       status: true,
       message: 'Login successful',
@@ -641,7 +755,8 @@ router.post('/login', async (req, res) => {
         name: `${student.basic.firstName}`,
         fullName: `${student.basic.firstName} ${student.basic.lastName}`,
         course: student.basic.courseName,
-        mobileNo: student.basic.mobileNo
+        mobileNo: student.basic.mobileNo,
+        isBirthdayToday // 👈 add this flag
       }
     });
   } catch (error) {
@@ -649,6 +764,49 @@ router.post('/login', async (req, res) => {
       status: false,
       message: 'Server error',
       error: error.message
+    });
+  }
+});
+
+
+router.get('/student-get-info/:emailAddress', async (req, res) => {
+  const { emailAddress } = req.params;
+
+  if (!emailAddress) {
+    return res.json({
+      status: false,
+      message: 'Email address is required',
+    });
+  }
+
+  try {
+    const student = await Student.findOne({ 'basic.emailAddress': emailAddress });
+
+    if (!student) {
+      return res.json({
+        status: false,
+        message: 'Student not found',
+      });
+    }
+
+    return res.json({
+      status: true,
+      message: 'Student data retrieved successfully',
+      data: {
+        studentId: student._id,
+        name: `${student.basic.firstName}`,
+        fullName: `${student.basic.firstName} ${student.basic.lastName}`,
+        course: student.basic.courseName,
+        mobileNo: student.basic.mobileNo,
+        isActive: student.basic.isActive,
+        emailAddress: student.basic.emailAddress,
+      },
+    });
+  } catch (error) {
+    return res.json({
+      status: false,
+      message: 'Server error',
+      error: error.message,
     });
   }
 });

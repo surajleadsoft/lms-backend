@@ -26,11 +26,11 @@ const sectionSchema = new mongoose.Schema({
   totalMarks: { type: Number, required: true },
   noOfquestions: { type: Number, required: true },
   timeTaken: { type: String }, // optional: in seconds
-  questions: [questionSchema]
+  questions: [questionSchema]     
 });
 
 const examSectionSchema = new mongoose.Schema({
-  emailAddress: { type: String, required: true },
+  emailAddress: { type: String, required: true,index:true},
   fullName: { type: String, required: true },
   examName: { type: String, required: true },
   sections: [sectionSchema]
