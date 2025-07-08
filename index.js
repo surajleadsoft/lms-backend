@@ -31,6 +31,7 @@ const applicationRoute = require('./routes/applicationRoute');
 const learningCourseRoute = require('./routes/learningCourseRoute')
 const chapterCompletion = require('./routes/chapterCompletionRoute')
 const testResultRoute = require('./routes/testResultRoute')
+const leaderboardRoute = require('./routes/LeaderboardRoute')
 
 const server = express();
 
@@ -89,6 +90,7 @@ server.use('/application', applicationRoute);
 server.use('/learning',learningCourseRoute);
 server.use('/chapter-completion',chapterCompletion);
 server.use('/test-result',testResultRoute)
+server.use('/leader',leaderboardRoute)
 
 // MongoDB Connection
 mongoose.set('strictQuery', false);

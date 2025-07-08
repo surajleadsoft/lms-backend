@@ -8,27 +8,44 @@ const Payment = require('../models/payments');
 const Course = require('../models/Course');
 const Attendance = require('../models/attendanceSchema');
 const ExamSection = require('../models/examSection'); // make sure it's imported
+const CourseRegistration = require('../models/CourseRegistration');
 
 router.get('/get-ranked-students', async (req, res) => {
   try {
+    // Step 1: Fetch active students
     const students = await Student.find({ 'basic.isActive': true });
-    const allAttendance = await Attendance.find();
-    const allTests = await ExamSection.find();
 
-    // Step 1: Attendance mapping
+    // Step 2: Fetch all attendance records
+    const allAttendance = await Attendance.find();
+
+    // Step 3: Compute total sessions per course using unique dates
+    const sessionCountMap = {};
+    allAttendance.forEach(record => {
+      const course = record.courseName;
+      const dateStr = new Date(record.date).toDateString();
+      if (!sessionCountMap[course]) sessionCountMap[course] = new Set();
+      sessionCountMap[course].add(dateStr);
+    });
+
+    const totalSessionsPerCourse = {};
+    for (let course in sessionCountMap) {
+      totalSessionsPerCourse[course] = sessionCountMap[course].size;
+    }
+
+    // Step 4: Create attendance map: email → present count
     const attendanceMap = {};
     allAttendance.forEach(entry => {
-      const email = entry.emailAddress;
-      if (!attendanceMap[email]) {
-        attendanceMap[email] = { total: 0, present: 0 };
-      }
-      attendanceMap[email].total += 1;
       if (entry.status.toLowerCase() === 'present') {
-        attendanceMap[email].present += 1;
+        const email = entry.emailAddress;
+        if (!attendanceMap[email]) attendanceMap[email] = 0;
+        attendanceMap[email]++;
       }
     });
 
-    // Step 2: Test score mapping
+    // Step 5: Fetch all test data
+    const allTests = await ExamSection.find();
+
+    // Step 6: Compute test scores
     const testScoreMap = {};
     allTests.forEach(entry => {
       const email = entry.emailAddress;
@@ -37,77 +54,91 @@ router.get('/get-ranked-students', async (req, res) => {
       entry.sections.forEach(section => {
         section.questions.forEach(q => {
           if (q.userAnswer && q.userAnswer === q.answer) {
-            testScoreMap[email] += 1;
+            testScoreMap[email]++;
           }
         });
       });
     });
 
-    // Step 3: Combine student data
-    const combinedData = students.map((student) => {
+    // Step 7: Combine all data
+    const combinedData = students.map(student => {
       const email = student.basic.emailAddress;
-      const { firstName, lastName } = student.basic;
-      const credits = student.credits || 0;
-      const attendance = attendanceMap[email] || { total: 0, present: 0 };
-      const percentage = attendance.total > 0
-        ? Math.round((attendance.present / attendance.total) * 100)
+      const fullName = `${student.basic.firstName} ${student.basic.lastName}`;
+      const courseName = student.basic.courseName[0]?.courseName || 'N/A';
+      const presentCount = attendanceMap[email] || 0;
+      const totalSessions = totalSessionsPerCourse[courseName] || 0;
+
+      const attendancePercentage = totalSessions > 0
+        ? Math.round((presentCount / totalSessions) * 100)
         : 0;
 
       const testScore = testScoreMap[email] || 0;
 
       return {
-        studentName: `${firstName} ${lastName}`,
+        studentName: fullName,
         emailAddress: email,
-        attendancePercentage: percentage,
-        overallCredits: credits,
-        testScore: testScore
+        courseName,
+        attendancePercentage,
+        testScore
       };
     });
 
-    // Step 4: Rank by Attendance
+    // Step 8: Rank by attendance
     const attendanceSorted = [...combinedData].sort((a, b) => b.attendancePercentage - a.attendancePercentage);
     attendanceSorted.forEach((student, index) => {
       student.attendanceRank = index + 1;
     });
 
-    // Step 5: Rank by Test Score
+    // Step 9: Rank by test score
     const testSorted = [...combinedData].sort((a, b) => b.testScore - a.testScore);
     testSorted.forEach((student, index) => {
       student.testRank = index + 1;
     });
 
-    // Step 6: Rank by Credits (Overall Rank)
-    const creditsSorted = [...combinedData].sort((a, b) => b.overallCredits - a.overallCredits);
-    creditsSorted.forEach((student, index) => {
-      student.overallRank = index + 1;
+    // Step 10: Calculate overallPoints = (attendance% * 0.5) + (testScore% * 0.5)
+    const maxTestScore = Math.max(...combinedData.map(s => s.testScore), 1); // avoid division by zero
+    combinedData.forEach(student => {
+      const attendancePoints = (student.attendancePercentage * 0.5); // out of 50
+      const testPercentage = (student.testScore / maxTestScore) * 100;
+      const testPoints = (testPercentage * 0.5); // out of 50
 
-      // Assign badge
+      student.overallPoints = Math.round(attendancePoints + testPoints); // out of 100
+    });
+
+    // Step 11: Rank by overallPoints and assign badge
+    const overallSorted = [...combinedData].sort((a, b) => b.overallPoints - a.overallPoints);
+    overallSorted.forEach((student, index) => {
+      student.rankNo = index + 1;
+
       if (index === 0) student.badge = 'gold';
       else if (index === 1) student.badge = 'silver';
       else if (index === 2) student.badge = 'bronze';
       else student.badge = 'normal';
     });
 
-    // Step 7: Return final structure
-    const finalList = creditsSorted.map(student => ({
-      rankNo: student.overallRank,
+    // Step 12: Prepare final response
+    const finalList = overallSorted.map(student => ({
+      rankNo: student.rankNo,
       studentName: student.studentName,
+      emailAddress: student.emailAddress,
+      courseName: student.courseName,
       attendancePercentage: student.attendancePercentage,
       attendanceRank: student.attendanceRank,
-      overallCredits: student.overallCredits,
-      overallRank: student.overallRank,
-      badge: student.badge,
       testScore: student.testScore,
       testRank: student.testRank,
+      overallCredits: student.overallPoints,
+      badge: student.badge
     }));
 
     res.json({ status: true, message: finalList });
 
+
   } catch (error) {
     console.error('Error generating ranks:', error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    res.status(500).json({ status: false, message: 'Internal Server Error' });
   }
 });
+
 router.post('/toggle-status', async (req, res) => {
   const { emailAddress } = req.body;
 

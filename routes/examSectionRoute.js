@@ -329,6 +329,64 @@ router.get('/stats', async (req, res) => {
     });
   }
 });
+router.post('/exam/section-questions', async (req, res) => {
+  const { subjectName, chapterName, noOfquestions } = req.body;
+
+  if (
+    typeof subjectName !== 'string' ||
+    typeof chapterName !== 'string' ||
+    isNaN(noOfquestions) ||
+    parseInt(noOfquestions) <= 0
+  ) {
+    return res.status(400).json({
+      status: false,
+      message: 'Valid subjectName, chapterName, and noOfquestions are required'
+    });
+  }
+
+  const sampleSize = parseInt(noOfquestions);
+
+  try {
+    const questions = await Question.aggregate([
+      {
+        $match: { subjectName, chapterName }
+      },
+      {
+        $sample: { size: sampleSize }
+      },
+      {
+        $project: {
+          questionText: 1,
+          options: 1,
+          answer: 1
+        }
+      }
+    ]);
+
+    const formattedQuestions = questions.map(({ questionText, options, answer }) => ({
+      questionText,
+      options,
+      answer: Buffer.from(answer).toString('base64'),
+      userAnswer: ''
+    }));
+
+    res.json({
+      status: true,
+      data: {
+        subjectName,
+        chapterName,
+        noOfquestions: formattedQuestions.length,
+        questions: formattedQuestions
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching questions:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Internal Server Error'
+    });
+  }
+});
 
 // 2. Get records by examName
 router.get('/examName/:examName', async (req, res) => {
