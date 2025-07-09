@@ -10,6 +10,54 @@ const Attendance = require('../models/attendanceSchema');
 const ExamSection = require('../models/examSection'); // make sure it's imported
 const CourseRegistration = require('../models/CourseRegistration');
 
+router.get('/student/pay-summary/:email', async (req, res) => {
+  const { email } = req.params;
+
+  try {
+    // 1. Get student by email
+    const student = await Student.findOne({ 'basic.emailAddress': email });
+    if (!student) return res.json({status:false, error: 'Student not found' });
+
+    let totalCourseFees = 0;
+    let totalPaid = 0;
+
+    for (const course of student.basic.courseName) {
+      const courseName = course.courseName;
+
+      // 2. Get course fee
+      const courseData = await Course.findOne({ courseName });
+      if (!courseData) continue;
+
+      totalCourseFees += Number(courseData.courseFees) || 0;
+
+      // 3. Get approved payments
+      const approvedPayments = await Payment.find({
+        emailAddress: email.toLowerCase(),
+        paymentCourse: courseName,
+        status: 'Approved'
+      });
+
+      const paidForCourse = approvedPayments.reduce((sum, p) => sum + (p.amountToPay || 0), 0);
+      totalPaid += paidForCourse;
+    }
+
+    const isFullyPaid = totalPaid >= totalCourseFees;
+
+    res.json({
+      status:true,
+      data:{
+        totalPaid,
+        totalCourseFees,
+        isFullyPaid
+      }
+    });
+
+  } catch (err) {
+    console.error('Payment summary error:', err);
+    res.json({status:false, error: 'Internal server error' });
+  }
+});
+
 router.get('/get-ranked-students', async (req, res) => {
   try {
     // Step 1: Fetch active students
