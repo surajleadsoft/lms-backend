@@ -2,6 +2,32 @@ const express = require('express');
 const router = express.Router();
 const WatchedVideo = require('../models/watchVideos');
 const CourseContent = require('../models/courseContentSchema')
+const Category = require('../models/Categories'); // Adjust path as needed
+const Exam = require('../models/Exams');
+
+router.get('/test-count/:courseName', async (req, res) => {
+  const { courseName } = req.params;
+
+  try {
+    // Step 1: Find all categories for the given courseName
+    const categories = await Category.find({ courseName }).select('categoryName');
+
+    if (!categories.length) {
+      return res.json({ status: false, message: 'No categories found for this course.' });
+    }
+
+    // Step 2: Extract category names
+    const categoryNames = categories.map(c => c.categoryName);
+
+    // Step 3: Count exams where category matches any of the category names
+    const examCount = await Exam.countDocuments({ category: { $in: categoryNames } });
+
+    return res.json({ status: true, courseName, examCount });
+  } catch (err) {
+    console.error(err);
+    return res.json({ status: false, message: 'Server error while counting exams.' });
+  }
+});
 
 // INSERT OR UPDATE
 router.post('/watch-status', async (req, res) => {

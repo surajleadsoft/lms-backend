@@ -2,14 +2,67 @@ const express = require('express');
 const router = express.Router();
 const Application = require('../models/Application');
 
+async function removeDuplicateApplications() {
+  try {
+    // Step 1: Find all duplicates grouped by unique fields
+    const duplicates = await Application.aggregate([
+      {
+        $group: {
+          _id: {
+            emailAddress: "$emailAddress",
+            companyName: "$companyName",
+            driveName: "$driveName",
+            position: "$position"
+          },
+          ids: { $push: "$_id" },
+          latestId: { $last: "$_id" }, // keep the latest one
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $match: {
+          count: { $gt: 1 } // only duplicates
+        }
+      }
+    ]);
+
+    // Step 2: Collect IDs to delete
+    const idsToDelete = duplicates.flatMap(doc => {
+      const { ids, latestId } = doc;
+      return ids.filter(id => id.toString() !== latestId.toString());
+    });
+
+    // Step 3: Delete the duplicates
+    const result = await Application.deleteMany({ _id: { $in: idsToDelete } });
+
+    console.log(`${result.deletedCount} duplicate applications deleted.`);
+  } catch (error) {
+    console.error('Error deleting duplicates:', error.message);
+  }
+}
+
+// removeDuplicateApplications();
+
 // Insert new application
 router.post('/add', async (req, res) => {
   try {
-    const newApplication = new Application(req.body);
-    const saved = await newApplication.save();
-    res.json({status:true,message:'Applied successfully !!'});
+    const { emailAddress, companyName, driveName, position, appliedDate, appliedTime } = req.body;
+
+    const filter = { emailAddress, companyName, driveName, position };
+    const update = { appliedDate, appliedTime };
+    const options = { upsert: true, new: true }; // create if not exists, return updated doc
+
+    const result = await Application.findOneAndUpdate(filter, update, options);
+
+    const isNew = result.createdAt && result.updatedAt && result.createdAt.getTime() === result.updatedAt.getTime();
+
+    res.json({
+      status: true,
+      message: isNew ? 'Applied successfully !!' : 'Application updated successfully !!'
+    });
   } catch (error) {
-    res.json({status:false, error: error.message });
+    console.error(error);
+    res.json({ status: false, error: error.message });
   }
 });
 
