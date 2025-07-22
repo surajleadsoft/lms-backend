@@ -173,7 +173,9 @@ router.get('/get-courses', async (req, res) => {
       if (!uniqueCoursesMap.has(course.courseName)) {
         const chapters = course.chapters || [];
 
-        const videoCount = chapters.filter(ch => ch.chapterType === 'video').length;
+        const videoCount = chapters.filter(ch =>
+          ch.chapterType === 'video' || ch.chapterType === 'youtube'
+        ).length;
         const testCount = chapters.filter(ch => ch.chapterType === 'test').length;
         const totalChapters = chapters.length;
 

@@ -55,7 +55,7 @@ const chapterSchema = new mongoose.Schema({
   chapterType: {
     type: String,
     required: true,
-    enum: ['video', 'test'],
+    enum: ['video', 'test','youtube'],
     default: 'video'
   },
   chapterContent: {
@@ -67,6 +67,8 @@ const chapterSchema = new mongoose.Schema({
           return content.videoTitle && content.videoURL;
         } else if (this.chapterType === 'test') {
           return content.subject && content.chapter && content.numberOfQuestions;
+        } else if (this.chapterType === 'youtube') {
+          return content.videoTitle && content.videoURL;
         }
         return false;
       },
@@ -150,7 +152,6 @@ learningCourseSchema.methods.addChapter = function(chapterData) {
     chapterContent: chapterData.chapterContent
   };
 
-  // Optional: extra validation for content before pushing
   if (
     newChapter.chapterType === 'video' &&
     (!newChapter.chapterContent?.videoTitle || !newChapter.chapterContent?.videoURL)
@@ -165,6 +166,13 @@ learningCourseSchema.methods.addChapter = function(chapterData) {
      typeof newChapter.chapterContent?.numberOfQuestions !== 'number')
   ) {
     throw new Error('Invalid test chapter content');
+  }
+
+  if (
+    newChapter.chapterType === 'youtube' &&
+    (!newChapter.chapterContent?.videoTitle || !newChapter.chapterContent?.videoURL)
+  ) {
+    throw new Error('Invalid YouTube chapter content');
   }
 
   this.chapters.push(newChapter);
