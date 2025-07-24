@@ -819,12 +819,16 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // ✅ Birthday check
     const dob = new Date(student.basic.DateOfBirth);
     const today = new Date();
 
-    const isBirthdayToday =
-      dob.getDate() === today.getDate() && dob.getMonth() === today.getMonth();
+    const dobDay = dob.getUTCDate();
+    const dobMonth = dob.getUTCMonth();
+
+    const todayDay = today.getUTCDate();
+    const todayMonth = today.getUTCMonth();
+
+    const isBirthdayToday = dobDay === todayDay && dobMonth === todayMonth;
 
     return res.json({
       status: true,
