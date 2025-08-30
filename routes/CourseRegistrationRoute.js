@@ -127,7 +127,7 @@ const dayjs = require('dayjs');
 router.get('/classes/:courseName', async (req, res) => {
   const courseName = req.params.courseName;
   try {
-    const course = await Course.findOne({ courseName });
+    const course = await Course.findOne({ courseName});
 
     if (!course) {
       return res.json({ status: false, message: 'Course not found' });
@@ -152,6 +152,7 @@ router.get('/classes/:courseName', async (req, res) => {
         const start = dayjs(cls.startDate);
         const end = dayjs(cls.endDate);
         return (
+          cls.status ==='Active' &&
           !cls.isCompleted &&
           today.isAfter(start) &&
           today.isBefore(end.add(1, 'day'))
