@@ -34,7 +34,7 @@ router.get('/user-chapter-status', async (req, res) => {
                 userName,
                 chapterName: chapter.chapterName
             });
-
+            
             const solved = userCompletions.length;
             const unsolved = totalQuestions - solved;
             const percentage = totalQuestions === 0 ? 0 : Math.round((solved / totalQuestions) * 100);
