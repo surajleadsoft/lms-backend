@@ -133,27 +133,36 @@ router.get('/chapters/questions', async (req, res) => {
       userName,
       chapterName
     });
-    const solvedSet = new Set(userCompletions.map(c => c.problemTitle));
+
+    // Map completions for quick lookup
+    const completionMap = {};
+    userCompletions.forEach(c => {
+      completionMap[c.problemTitle] = c.solution; // store solution
+    });
 
     // Map questions to custom response format
-    const formattedQuestions = chapter.questions.map((q) => ({
-      id: q.questionNo,
-      title: q.title,
-      solved: solvedSet.has(q.title), // mark solved if exists in completions
-      tags: q.tags,
-      description: q.description,
-      input: q.inputFormat || "",
-      output: q.outputFormat || "",
-      sampleCases: q.sampleTestCases.map(sc => ({
-        input: sc.input,
-        output: sc.output,
-        explanation: sc.explanation || ""
-      })),
-      hiddenTestCases: q.hiddenTestCases.map(htc => ({
-        input: htc.input,
-        output: htc.output
-      }))
-    }));
+    const formattedQuestions = chapter.questions.map((q) => {
+      const solved = completionMap[q.title] !== undefined;
+      return {
+        id: q.questionNo,
+        title: q.title,
+        solved,
+        solution: solved ? completionMap[q.title] : null, // return solution if solved
+        tags: q.tags,
+        description: q.description,
+        input: q.inputFormat || "",
+        output: q.outputFormat || "",
+        sampleCases: q.sampleTestCases.map(sc => ({
+          input: sc.input,
+          output: sc.output,
+          explanation: sc.explanation || ""
+        })),
+        hiddenTestCases: q.hiddenTestCases.map(htc => ({
+          input: htc.input,
+          output: htc.output
+        }))
+      };
+    });
 
     res.json({
       status: true,
@@ -166,6 +175,7 @@ router.get('/chapters/questions', async (req, res) => {
     res.json({ status: false, message: "Something went wrong !!", data: null });
   }
 });
+
 
 
 

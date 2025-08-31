@@ -46,6 +46,8 @@ const corsOptions = {
     'https://course-admin.leadsoft.academy',
     'https://courses.leadsoft.academy',
     'https://lms-admin.leadsoft.academy',
+    'https://self-learn.leadsoft.academy',
+    'https://coding.leadsoft.academy'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -122,6 +124,75 @@ const languages = {
   python3: 71,   // Python 3.11.2
 };
 server.post("/run", async (req, res) => {
+  try {
+    const { language, code, input, expectedOutput } = req.body;
+
+    if (!languages[language]) {
+      return res.json({ status: false, error: "Unsupported language" });
+    }
+
+    // Submit code to Judge0 with wait=true
+    const submission = await axios.post(
+      `${JUDGE0_URL}?base64_encoded=false&wait=true`,
+      {
+        source_code: code,
+        stdin: input,
+        language_id: languages[language],
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "X-RapidAPI-Key": API_KEY,
+          "X-RapidAPI-Host": "judge0-ce.p.rapidapi.com",
+        },
+      }
+    );
+
+    const result = submission.data;
+
+    // Initialize response object
+    const responseData = {
+      status: result.status,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      compile_output: result.compile_output,
+      time: result.time,
+      memory: result.memory,
+      verdict: "Wrong Answer",
+      compilationError: null,
+    };
+
+    // Check if there is a compilation error
+    if (result.compile_output) {
+      // Decode compilation output
+      const compileError = result.compile_output;
+
+      // Optional: extract line number using regex (works for C/C++/Java errors)
+      const lineMatch = compileError.match(/:(\d+):/);
+      const line = lineMatch ? parseInt(lineMatch[1]) : null;
+
+      responseData.compilationError = {
+        message: compileError,
+        line: line,
+      };
+
+      responseData.verdict = "Compilation Error";
+    } else if (result.stdout && expectedOutput && result.stdout.trim() === expectedOutput.trim()) {
+      responseData.verdict = "Accepted";
+    }
+
+    res.json(responseData);
+  } catch (error) {
+    console.error(error.response?.data || error.message);
+    res.json({
+      status: false,
+      error: "Something went wrong",
+      details: error.response?.data,
+    });
+  }
+});
+
+server.post("/submit", async (req, res) => {
   try {
     const { language, code, input, expectedOutput } = req.body;
 
