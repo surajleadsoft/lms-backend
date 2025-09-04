@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const CodingCompletion = require('../models/CodingCompletion'); // import schema
+const Student = require('../models/Student');
+const CodingChapters = require("../models/CodingChapters"); // your CodingChapters model
 
 router.delete('/completion/duplicates', async (req, res) => {
   try {
@@ -90,6 +92,82 @@ router.get('/codingCompletions/:userName', async (req, res) => {
         console.error(error);
         res.json({ status: false, message: 'Server error', error: error.message });
     }
+});
+
+router.post("/report", async (req, res) => {
+  try {
+    const { courseName, codingChapterName } = req.body;
+
+    if (!courseName || !codingChapterName) {
+      return res.json({
+        status: false,
+        message: "courseName and codingChapterName are required",
+      });
+    }
+
+    // 1. Get all students in the given course
+    const students = await Student.find({
+      "basic.courseName.courseName": courseName,
+      "basic.isActive": true,
+    });
+
+    if (!students.length) {
+      return res.json({
+        status: false,
+        message: "No students found for this course",
+      });
+    }
+
+    // 2. Get the chapter to fetch total questions
+    const chapter = await CodingChapters.findOne({
+      chapterName: codingChapterName,
+      chapterAssignedTo: { $in: [courseName] }, // ensures this chapter belongs to course
+    });
+
+    if (!chapter) {
+      return res.json({
+        status: false,
+        message: `Chapter '${codingChapterName}' not found for course '${courseName}'`,
+      });
+    }
+
+    const totalQuestions = chapter.questions.length;
+
+    // 3. For each student, count completed problems
+    const report = await Promise.all(
+      students.map(async (student) => {
+        const email = student.basic.emailAddress;
+
+        const completedCount = await CodingCompletion.countDocuments({
+          userName: email,
+          chapterName: codingChapterName,
+        });
+
+        return {
+          name: `${student.basic.firstName} ${student.basic.lastName}`,
+          email,
+          completedQuestions: completedCount,
+          totalQuestions,
+        };
+      })
+    );
+    report.sort((a, b) => b.completedQuestions - a.completedQuestions);
+
+    // 4. Return response
+    res.json({
+      status: true,
+      totalStudents: report.length,
+      totalQuestions,
+      data: report,
+    });
+  } catch (error) {
+    console.error("Error generating coding report:", error);
+    res.json({
+      status: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
 });
 
 module.exports = router;

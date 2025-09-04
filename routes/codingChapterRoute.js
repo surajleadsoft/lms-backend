@@ -152,6 +152,7 @@ router.get('/chapters/questions', async (req, res) => {
         description: q.description,
         input: q.inputFormat || "",
         output: q.outputFormat || "",
+        constraints:q.constraints,
         sampleCases: q.sampleTestCases.map(sc => ({
           input: sc.input,
           output: sc.output,
@@ -321,6 +322,40 @@ router.delete('/chapters/:id', async (req, res) => {
       return res.status(400).json({ msg: 'Invalid chapter ID format' });
     }
     res.status(500).json({ error: 'Server Error', details: err.message });
+  }
+});
+
+router.get("/reports-chapters/:courseName", async (req, res) => {
+  try {
+    const { courseName } = req.params;
+
+    const chapters = await Chapter.find({ chapterAssignedTo : { $in:[courseName]} });
+
+    if (!chapters.length) {
+      return res.json({
+        status: false,
+        message: `No chapters found for course: ${courseName}`,
+      });
+    }
+
+    // return only chapterNames if you just want names
+    const chapterNames = chapters.map((ch) => ({
+      _id: ch._id,
+      chapterName: ch.chapterName,
+    }));
+
+
+    return res.json({
+      status: true,
+      courseName,
+      chapters: chapterNames,
+    });
+  } catch (error) {
+    console.error("Error fetching chapters:", error);
+    return res.status(500).json({
+      status: false,
+      message: "Server Error",
+    });
   }
 });
 
