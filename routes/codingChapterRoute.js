@@ -153,6 +153,7 @@ router.get('/chapters/questions', async (req, res) => {
         input: q.inputFormat || "",
         output: q.outputFormat || "",
         constraints:q.constraints,
+        driverCodes:q.driverCodes,
         sampleCases: q.sampleTestCases.map(sc => ({
           input: sc.input,
           output: sc.output,
@@ -241,72 +242,63 @@ router.put('/chapters/:id', async (req, res) => {
   }
 });
 
+// Add a question (with driverCodes) to a chapter
 router.post('/chapters/:id/question', async (req, res) => {
   try {
     const { question } = req.body;
+
+    if (!question) {
+      return res.json({ status: false, message: "A single question object is required" });
+    }
 
     const chapter = await Chapter.findById(req.params.id);
     if (!chapter) {
       return res.json({ status: false, message: "Chapter not found" });
     }
 
-    // assign questionNo
+    // assign questionNo (next in sequence)
     question.questionNo = chapter.questions.length + 1;
 
-    // Map test cases to match schema
+    // normalize sample test cases
     if (question.sampleTestCases) {
       question.sampleTestCases = question.sampleTestCases.map(tc => ({
         input: tc.input,
-        output: tc.expectedOutput,
-        explanation: tc.explanation || ''
+        output: tc.output || tc.expectedOutput,  // support both keys
+        explanation: tc.explanation || ""
       }));
     }
 
+    // normalize hidden test cases
     if (question.hiddenTestCases) {
       question.hiddenTestCases = question.hiddenTestCases.map(tc => ({
         input: tc.input,
-        output: tc.expectedOutput
+        output: tc.output || tc.expectedOutput
       }));
     }
 
+    // normalize driver codes
+    if (question.driverCodes) {
+      question.driverCodes = question.driverCodes.map(dc => ({
+        language: dc.language,
+        code: dc.code
+      }));
+    }
+
+    // push question
     chapter.questions.push(question);
     await chapter.save();
 
-    res.json({ status: true, message: "Chapter updated successfully !!", data: chapter });
+    res.json({
+      status: true,
+      message: "Question added successfully !!",
+      data: chapter
+    });
   } catch (err) {
     console.error(err.message);
     res.json({ status: false, message: "Something went wrong !!" });
   }
 });
 
-
-router.post('/chapters/:id/question', async (req, res) => {
-  try {
-    const { question } = req.body;
-    
-    if (!question) {
-      return res.json({ status:false,message: 'A single question object is required' });
-    }
-    
-    const updatedChapter = await Chapter.findByIdAndUpdate(
-      req.params.id,
-      { $push: { questions: question } },
-      { new: true, runValidators: true }
-    );
-    
-    if (!updatedChapter) {
-      return res.json({status:false, message: 'Chapter not found' });
-    }
-    
-    res.json({status:true,message:'Question added successfully !!',data:updatedChapter});
-  } catch (err) {
-    console.error(err.message);
-    if (err.kind === 'ObjectId') {
-      res.json({status:false,message:'Something went wrong !!'});
-    }
-    res.json({status:false,message:'Something went wrong !!'});
-  }
-});
 router.delete('/chapters/:id', async (req, res) => {
   try {
     const deletedChapter = await Chapter.findByIdAndDelete(req.params.id);

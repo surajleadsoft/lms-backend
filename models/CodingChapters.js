@@ -26,6 +26,12 @@ const QuestionSchema = new mongoose.Schema({
     enum: ["Easy", "Medium", "Hard"],
     default: "Easy",
   },
+  driverCodes: [
+    {
+      language: { type: String, required: true }, // e.g., "Java", "Python", "C++"
+      code: { type: String, required: true },     // driver code snippet
+    },
+  ],
   constraints: {
     type: [String], // e.g., "1 <= n <= 10^5"
     default: [],

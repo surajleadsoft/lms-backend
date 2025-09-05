@@ -3,6 +3,77 @@ const router = express.Router();
 const CodingCompletion = require('../models/CodingCompletion'); // import schema
 const Student = require('../models/Student');
 const CodingChapters = require("../models/CodingChapters"); // your CodingChapters model
+const Chapter = require("../models/CodingChapters"); // your Chapter schema
+
+router.get("/chapter-stat/:chapterName", async (req, res) => {
+  try {
+    const { chapterName } = req.params;
+
+    // Get total questions for this chapter
+    const chapter = await CodingChapters.findOne({ chapterName });
+    if (!chapter) {
+      return res.json({status:false, error: "Chapter not found" });
+    }
+    const totalQuestions = chapter.questions.length;
+
+    if (totalQuestions === 0) {
+      return res.json({
+        status:true,
+        data:{chapterName,
+        totalQuestions: 0,
+        completed: 0,
+        attempted: 0,
+        inProgress: 0,}
+      });
+    }
+
+    // Fetch all submissions for this chapter
+    const submissions = await CodingCompletion.find({ chapterName });
+
+    // Group by user
+    const userMap = new Map();
+
+    submissions.forEach((s) => {
+      if (!userMap.has(s.userName)) {
+        userMap.set(s.userName, new Set());
+      }
+      userMap.get(s.userName).add(s.problemTitle);
+    });
+
+    let completed = 0;
+    let attempted = 0;
+    let inProgress = 0;
+
+    for (let [user, solvedProblems] of userMap.entries()) {
+      const solvedCount = solvedProblems.size;
+
+      if (solvedCount === totalQuestions) {
+        completed++;
+      } else if (solvedCount > 0 && solvedCount < totalQuestions) {
+        inProgress++;
+      } else if (solvedCount > 0) {
+        attempted++; // (this case won't trigger separately, but kept for clarity)
+      }
+    }
+
+    // Attempted = users who solved at least 1 (includes completed + inProgress)
+    attempted = completed + inProgress;
+
+    res.json({
+      status:true,
+      data:{
+        chapterName,
+      totalQuestions,
+      completed,
+      attempted,
+      inProgress,
+      }
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.json({ status: false, message: "Something went wrong !!", data: null });
+  }
+});
 
 router.delete('/completion/duplicates', async (req, res) => {
   try {
