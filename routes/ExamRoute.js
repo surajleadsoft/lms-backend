@@ -16,6 +16,93 @@ router.post('/exam', async (req, res) => {
 });
 
 // exam.controller.js or routes.js
+// router.get('/exam/full/:examName/:category', async (req, res) => {
+//   const { examName, category } = req.params;
+
+//   try {
+//     const exam = await Exam.findOne({ examName, category });
+//     if (!exam || !Array.isArray(exam.sections)) {
+//       return res.json({ status: false, message: 'Exam not found or sections missing' });
+//     }
+
+//     const fullSections = [];
+
+//     for (const section of exam.sections) {
+//       const { sectionName, duration, totalMarks, chapters } = section;
+
+//       if (!sectionName || !Array.isArray(chapters)) {
+//         console.warn(`⚠️ Skipping section due to invalid structure:`, section);
+//         continue;
+//       }
+
+//       let sectionQuestions = [];
+//       let sectionTotalQuestions = 0;
+
+//       for (const chapter of chapters) {
+//         const { subjectName, chapterName, noOfquestions } = chapter;
+
+//         if (!subjectName || !chapterName || !noOfquestions || isNaN(noOfquestions)) {
+//           console.warn(`⚠️ Invalid chapter in section "${sectionName}":`, chapter);
+//           continue;
+//         }
+
+//         const sampleSize = parseInt(noOfquestions);
+
+//         const questions = await Question.aggregate([
+//           { $match: { subjectName, chapterName } },
+//           { $sample: { size: sampleSize } }
+//         ]);
+
+//         const formattedQuestions = questions.map(q => ({
+//           _id: q._id,
+//           questionText: q.questionText,
+//           options: q.options,
+//           difficultyLevel: q.difficultyLevel,
+//           companyTags: q.companyTags,
+//           answer: q.answer ? Buffer.from(q.answer.toString()).toString('base64') : '',
+//           userAnswer: ''
+//         }));
+
+//         sectionQuestions.push(...formattedQuestions);
+//         sectionTotalQuestions += formattedQuestions.length;
+//       }
+
+//       fullSections.push({
+//         sectionName,
+//         duration,
+//         totalMarks,
+//         totalQuestions: sectionTotalQuestions,
+//         questions: sectionQuestions
+//       });
+//     }
+
+//     const totalQuestions = fullSections.reduce((sum, sec) => {
+//       return sum + (typeof sec.totalQuestions === 'number' ? sec.totalQuestions : 0);
+//     }, 0);
+
+//     const totalDuration = fullSections.reduce((sum, sec) => {
+//       return sum + (typeof sec.duration === 'number' ? sec.duration : 0);
+//     }, 0);
+
+//     const sectionNames = fullSections.map(sec => sec.sectionName).join(', ');
+
+//     const finalExamObj = {
+//       examName,
+//       category,
+//       qualificationCriteria: exam.qualificationCriteria,
+//       sectionNames,
+//       totalQuestions,
+//       totalDuration,
+//       sections: fullSections
+//     };
+
+//     return res.json({ status: true, data: finalExamObj });
+//   } catch (error) {
+//     console.error('❌ Error fetching full exam:', error);
+//     return res.json({ status: false, error: 'Internal Server Error' });
+//   }
+// });
+
 router.get('/exam/full/:examName/:category', async (req, res) => {
   const { examName, category } = req.params;
 
@@ -25,66 +112,78 @@ router.get('/exam/full/:examName/:category', async (req, res) => {
       return res.json({ status: false, message: 'Exam not found or sections missing' });
     }
 
-    const fullSections = [];
+    const allChapterPromises = [];
+    const sectionMap = new Map();
 
     for (const section of exam.sections) {
-      const { sectionName, duration, totalMarks, chapters } = section;
-
-      if (!sectionName || !Array.isArray(chapters)) {
-        console.warn(`⚠️ Skipping section due to invalid structure:`, section);
+      if (!Array.isArray(section.chapters)) {
         continue;
       }
 
-      let sectionQuestions = [];
-      let sectionTotalQuestions = 0;
-
-      for (const chapter of chapters) {
+      for (const chapter of section.chapters) {
         const { subjectName, chapterName, noOfquestions } = chapter;
+        if (subjectName && chapterName && noOfquestions && !isNaN(noOfquestions)) {
+          const sampleSize = parseInt(noOfquestions);
 
-        if (!subjectName || !chapterName || !noOfquestions || isNaN(noOfquestions)) {
-          console.warn(`⚠️ Invalid chapter in section "${sectionName}":`, chapter);
-          continue;
+          // Create a promise for each chapter's aggregation query
+          const chapterPromise = Question.aggregate([
+            { $match: { subjectName, chapterName } },
+            { $sample: { size: sampleSize } }
+          ]).then(questions => ({
+            sectionName: section.sectionName,
+            chapterName: chapter.chapterName,
+            subjectName: subjectName,
+            questions: questions
+          }));
+
+          allChapterPromises.push(chapterPromise);
         }
-
-        const sampleSize = parseInt(noOfquestions);
-
-        const questions = await Question.aggregate([
-          { $match: { subjectName, chapterName } },
-          { $sample: { size: sampleSize } }
-        ]);
-
-        const formattedQuestions = questions.map(q => ({
-          _id: q._id,
-          questionText: q.questionText,
-          options: q.options,
-          difficultyLevel: q.difficultyLevel,
-          companyTags: q.companyTags,
-          answer: q.answer ? Buffer.from(q.answer.toString()).toString('base64') : '',
-          userAnswer: ''
-        }));
-
-        sectionQuestions.push(...formattedQuestions);
-        sectionTotalQuestions += formattedQuestions.length;
       }
-
-      fullSections.push({
-        sectionName,
-        duration,
-        totalMarks,
-        totalQuestions: sectionTotalQuestions,
-        questions: sectionQuestions
-      });
     }
 
-    const totalQuestions = fullSections.reduce((sum, sec) => {
-      return sum + (typeof sec.totalQuestions === 'number' ? sec.totalQuestions : 0);
-    }, 0);
+    // Execute all chapter queries in parallel
+    const chapterResults = await Promise.all(allChapterPromises);
 
-    const totalDuration = fullSections.reduce((sum, sec) => {
-      return sum + (typeof sec.duration === 'number' ? sec.duration : 0);
-    }, 0);
+    // Build the final exam object from the results
+    const fullSections = [];
+    const sectionData = new Map(); // Use a Map for efficient lookup
 
-    const sectionNames = fullSections.map(sec => sec.sectionName).join(', ');
+    // Initialize section data
+    exam.sections.forEach(sec => {
+      sectionData.set(sec.sectionName, {
+        sectionName: sec.sectionName,
+        duration: sec.duration,
+        totalMarks: sec.totalMarks,
+        totalQuestions: 0,
+        questions: []
+      });
+    });
+
+    // Populate sections with questions from the results
+    for (const result of chapterResults) {
+      if (sectionData.has(result.sectionName)) {
+        const section = sectionData.get(result.sectionName);
+        for (const q of result.questions) {
+          section.questions.push({
+            _id: q._id,
+            questionText: q.questionText,
+            options: q.options,
+            difficultyLevel: q.difficultyLevel,
+            companyTags: q.companyTags,
+            answer: q.answer ? Buffer.from(q.answer.toString()).toString('base64') : '',
+            userAnswer: ''
+          });
+          section.totalQuestions++;
+        }
+      }
+    }
+
+    const finalSections = Array.from(sectionData.values());
+
+    // Calculate final totals
+    const totalQuestions = finalSections.reduce((sum, sec) => sum + sec.totalQuestions, 0);
+    const totalDuration = exam.duration;
+    const sectionNames = finalSections.map(sec => sec.sectionName).join(', ');
 
     const finalExamObj = {
       examName,
@@ -93,13 +192,14 @@ router.get('/exam/full/:examName/:category', async (req, res) => {
       sectionNames,
       totalQuestions,
       totalDuration,
-      sections: fullSections
+      sections: finalSections
     };
 
     return res.json({ status: true, data: finalExamObj });
+
   } catch (error) {
     console.error('❌ Error fetching full exam:', error);
-    return res.json({ status: false, error: 'Internal Server Error' });
+    return res.status(500).json({ status: false, error: 'Internal Server Error' });
   }
 });
 

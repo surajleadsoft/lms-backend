@@ -32,6 +32,7 @@ router.get('/', async (req, res) => {
   }
 });
 const checkIfFullyPaid = async (emailAddress, paymentCourse) => {
+  // console.log(emailAddress,paymentCourse)
   const result = await Payment.aggregate([
     {
       $match: {
@@ -61,7 +62,7 @@ const checkIfFullyPaid = async (emailAddress, paymentCourse) => {
       }
     }
   ]);
-
+  
   return result[0] || { isFullyPaid: false };
 };
 // 🔹 Get with courseName all categories

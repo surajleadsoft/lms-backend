@@ -14,6 +14,197 @@ function addTimes(time1, time2) {
   minutes %= 60;
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
+
+router.post('/exam-consolated-summary', async (req, res) => {
+  try {
+    const { examNames } = req.body;
+
+    if (!examNames || !Array.isArray(examNames) || examNames.length === 0) {
+      return res.json({ status: false, error: 'examNames (array) is required' });
+    }
+
+    // 1. Get exam documents
+    const exams = await Exams.find({ examName: { $in: examNames } }).lean();
+    if (!exams || exams.length === 0) {
+      return res.json({ status: false, error: 'No exams found' });
+    }
+
+    const examCategories = exams.map(e => e.category);
+
+    // 2. Find linked courses from Category
+    const categories = await Category.find({
+      categoryName: { $in: examCategories }
+    }).lean();
+
+    if (!categories || categories.length === 0) {
+      return res.json({ status: false, error: 'No categories found for exams' });
+    }
+
+    const courseNames = categories.map(c => c.courseName);
+
+    // 3. Get all students enrolled in those courses
+    const students = await Student.find({
+      "basic.courseName.courseName": { $in: courseNames },
+      "basic.isActive": true
+    }).lean();
+
+    // 4. Aggregate attempt results
+    const attemptResults = await ExamSection.aggregate([
+      {
+        $match: {
+          examName: { $in: examNames }
+        }
+      },
+      { $unwind: "$sections" },
+      { $unwind: "$sections.questions" },
+
+      {
+        $addFields: {
+          isCorrect: {
+            $cond: [
+              { $eq: ["$sections.questions.userAnswer", "$sections.questions.answer"] },
+              1, 0
+            ]
+          },
+          isWrong: {
+            $cond: [
+              {
+                $and: [
+                  { $ne: ["$sections.questions.userAnswer", null] },
+                  { $ne: ["$sections.questions.userAnswer", ""] },
+                  { $ne: ["$sections.questions.userAnswer", "$sections.questions.answer"] }
+                ]
+              },
+              1, 0
+            ]
+          }
+        }
+      },
+
+      {
+        $group: {
+          _id: {
+            emailAddress: "$emailAddress",
+            fullName: "$fullName",
+            examName: "$examName",
+            sectionName: "$sections.sectionName"
+          },
+          totalCorrect: { $sum: "$isCorrect" },
+          totalWrong: { $sum: "$isWrong" },
+          timeTaken: { $first: "$sections.timeTaken" },
+          totalMarks: { $first: "$sections.totalMarks" },
+          noOfquestions: { $first: "$sections.noOfquestions" }
+        }
+      },
+
+      {
+        $addFields: {
+          marksObtained: {
+            $round: [
+              {
+                $multiply: [
+                  { $divide: ["$totalCorrect", "$noOfquestions"] },
+                  "$totalMarks"
+                ]
+              },
+              2
+            ]
+          }
+        }
+      },
+
+      {
+        $group: {
+          _id: {
+            emailAddress: "$_id.emailAddress",
+            fullName: "$_id.fullName"
+          },
+          examNamesTaken: { $addToSet: "$_id.examName" },
+          examRecords: {
+            $push: {
+              examName: "$_id.examName",
+              sectionName: "$_id.sectionName",
+              totalCorrect: "$totalCorrect",
+              totalWrong: "$totalWrong",
+              timeTaken: "$timeTaken",
+              marksObtained: "$marksObtained"
+            }
+          }
+        }
+      },
+
+      {
+        $project: {
+          _id: 0,
+          emailAddress: "$_id.emailAddress",
+          fullName: "$_id.fullName",
+          examNamesTaken: 1,
+          examRecords: 1
+        }
+      }
+    ]);
+
+    // 5. Merge students with attempts
+    // 5. Merge students with attempts and add exam-wise absent status
+    const attemptMap = new Map(
+      attemptResults.map(r => [r.emailAddress, r])
+    );
+
+    let finalData = students.map(stu => {
+      const studentEmail = stu.basic.emailAddress;
+      const attempt = attemptMap.get(studentEmail);
+      const studentRecords = attempt ? attempt.examRecords : [];
+      const studentFullName = `${stu.basic.firstName} ${stu.basic.lastName}`;
+      const consolidatedRecords = [];
+
+      // Loop through all requested exam names
+      examNames.forEach(examName => {
+        // Find all records for this specific exam
+        const recordsForExam = studentRecords.filter(rec => rec.examName === examName);
+
+        if (recordsForExam.length > 0) {
+          // Student has taken this exam, add their records
+          consolidatedRecords.push(...recordsForExam);
+        } else {
+          // Student did not take this exam, mark as Absent
+          consolidatedRecords.push({
+            examName: examName,
+            sectionName: 'N/A',
+            totalCorrect: 'N/A',
+            totalWrong: 'N/A',
+            timeTaken: 'N/A',
+            marksObtained: 'Absent'
+          });
+        }
+      });
+
+      return {
+        emailAddress: studentEmail,
+        fullName: studentFullName,
+        // The combined list of records, including "Absent" entries
+        examRecords: consolidatedRecords
+      };
+    });
+
+    // 6. Sort students by total correct sum (desc)
+    finalData.sort((a, b) => {
+      const sumA = a.examRecords.reduce((acc, rec) => {
+        return acc + (typeof rec.totalCorrect === 'number' ? rec.totalCorrect : 0);
+      }, 0);
+      const sumB = b.examRecords.reduce((acc, rec) => {
+        return acc + (typeof rec.totalCorrect === 'number' ? rec.totalCorrect : 0);
+      }, 0);
+      return sumB - sumA;
+    });
+
+    res.json({ status: true, data: finalData });
+
+  } catch (err) {
+    console.error("Error in /exam-consolated-summary:", err);
+    res.json({ status: false, error: "Internal server error" });
+  }
+});
+
 router.get('/exam-attempted', async (req, res) => {
   const { emailAddress } = req.query;
 
