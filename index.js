@@ -35,6 +35,8 @@ const leaderboardRoute = require('./routes/LeaderboardRoute')
 const codingChaptersRoute = require('./routes/codingChapterRoute');
 const { default: axios } = require('axios');
 const codingCompletionRoute = require('./routes/codingCompletionRoute');
+const openExamRoute = require('./routes/openExamRoute')
+const openUserRoute = require('./routes/OpenUserRoute')
 
 const server = express();
 
@@ -98,6 +100,8 @@ server.use('/test-result',testResultRoute)
 server.use('/leader',leaderboardRoute)
 server.use('/coding',codingChaptersRoute)
 server.use('/coding-completion',codingCompletionRoute)
+server.use('/open-exam',openExamRoute)
+server.use('/open-user',openUserRoute)
 
 
 // MongoDB Connection
