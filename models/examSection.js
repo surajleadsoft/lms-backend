@@ -36,6 +36,6 @@ const examSectionSchema = new mongoose.Schema({
   sections: [sectionSchema]
 }, { timestamps: true });
 
-examSectionSchema.index({ examName: 1 });
+examSectionSchema.index({ emailAddress: 1, examName: 1 });
 
 module.exports = mongoose.model('ExamSection', examSectionSchema);

@@ -453,46 +453,52 @@ router.get('/exam-summary', async (req, res) => {
 router.post('/addSection', async (req, res) => {
   try {
     const { emailAddress, fullName, examName, section } = req.body;
-    if (!emailAddress || !fullName || !examName || !section || !section.sectionName) {
-      return res.json({status:false, error: 'Missing required fields' });
+
+    if (!emailAddress || !fullName || !examName || !section?.sectionName) {
+      return res.json({ status: false, error: 'Missing required fields' });
     }
 
-    // Try to find an existing exam record for the user
-    let record = await ExamSection.findOne({ emailAddress, examName });
+    const updated = await ExamSection.findOneAndUpdate(
+      { emailAddress, examName, "sections.sectionName": section.sectionName },
+      {
+        $set: {
+          "sections.$": section,  // update if section exists
+          fullName,
+        },
+      },
+      { new: true }
+    );
 
-    if (record) {
-      // Check if the section already exists
-      const index = record.sections.findIndex(
-        s => s.sectionName === section.sectionName
-      );
-
-      if (index !== -1) {
-        // Overwrite existing section
-        record.sections[index] = section;
-      } else {
-        // Push new section
-        record.sections.push(section);
-      }
-
-      await record.save();
-      return res.json({status:true, message: 'Section added/updated successfully', data: record });
-    } else {
-      // Create new document with the section
-      const newRecord = new ExamSection({
-        emailAddress,
-        fullName,
-        examName,
-        sections: [section]
+    if (updated) {
+      return res.json({
+        status: true,
+        message: "Section updated successfully",
+        data: updated,
       });
-
-      const saved = await newRecord.save();
-      return res.json({status:true, message: 'New exam record created', data: saved });
     }
+
+    // if section not found → push it
+    const newDoc = await ExamSection.findOneAndUpdate(
+      { emailAddress, examName },
+      {
+        $push: { sections: section },
+        $setOnInsert: { emailAddress, fullName, examName },
+      },
+      { new: true, upsert: true }
+    );
+
+    return res.json({
+      status: true,
+      message: "New exam record created or section added",
+      data: newDoc,
+    });
+
   } catch (error) {
-    console.log(error)
-    res.json({status:false, error: error.message });
+    console.error(error);
+    res.json({ status: false, error: error.message });
   }
 });
+
 
 router.get('/stats', async (req, res) => {
   try {
