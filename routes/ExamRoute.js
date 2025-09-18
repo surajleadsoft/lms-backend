@@ -103,11 +103,11 @@ router.post('/exam', async (req, res) => {
 //   }
 // });
 
-router.get('/exam/full/:examName/:category', async (req, res) => {
+router.get('/exam/full/:examName/:category/', async (req, res) => {
   const { examName, category } = req.params;
 
   try {
-    const exam = await Exam.findOne({ examName, category });
+    const exam = await Exam.findOne({ examName, category }).lean();
     if (!exam || !Array.isArray(exam.sections)) {
       return res.json({ status: false, message: 'Exam not found or sections missing' });
     }

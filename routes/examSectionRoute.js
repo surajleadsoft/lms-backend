@@ -296,55 +296,182 @@ router.post('/exam-result-summary', async (req, res) => {
 // POST /exam/addSection
 router.post('/addSection', async (req, res) => {
   try {
-    const { examName, emailAddress, fullName, section } = req.body;
-    if (!examName || !emailAddress || !fullName || !section) {
-      return res.json({ status: false, message: "examName, emailAddress, fullName, section required" });
+    const { examName, emailAddress, fullName, section, status } = req.body;
+
+    if (!examName || !emailAddress || !fullName || !section || !section.sectionName) {
+      return res.json({ status: false, message: "examName, emailAddress, fullName, sectionName required" });
     }
 
-    // compute stats for this section
-    const totalCorrect = section.questions.filter(q => q.status === "correct").length;
-    const totalWrong = section.questions.filter(q => q.status === "wrong").length;
-    const marksObtained = ((totalCorrect / section.noOfquestions) * section.totalMarks).toFixed(2);
+    const questions = Array.isArray(section.questions) ? section.questions : [];
 
-    section.totalCorrect = totalCorrect;
-    section.totalWrong = totalWrong;
-    section.marksObtained = Number(marksObtained);
+    // ✅ Pre-compute per-section stats before DB call
+    const totalAttempted = questions.filter(q => q.userAnswer !== null).length || 0;
+    const totalCorrect = questions.filter(q => q.status === "correct").length || 0;
+    const totalWrong = questions.filter(q => q.status === "wrong").length || 0;
+    const marksObtained = section.noOfquestions > 0 
+      ? Number(((totalCorrect / section.noOfquestions) * section.totalMarks).toFixed(2)) 
+      : 0;
 
-    // upsert examSection record
-    const record = await ExamSection.findOneAndUpdate(
-      { examName, emailAddress, fullName },
-      { 
-        $push: { sections: section } 
+    section.attempted = totalAttempted;
+    section.correct = totalCorrect;
+    section.wrong = totalWrong;
+    section.marksObtained = marksObtained;
+    section.timeTaken = section.timeTaken || '00:00';
+
+    // ✅ Try update existing section atomically
+    let record = await ExamSection.findOneAndUpdate(
+      {
+        examName,
+        emailAddress,
+        fullName,
+        "sections.sectionName": section.sectionName
       },
-      { new: true, upsert: true }
+      {
+        $set: {
+          "sections.$.questions": section.questions,
+          "sections.$.attempted": section.attempted,
+          "sections.$.correct": section.correct,
+          "sections.$.wrong": section.wrong,
+          "sections.$.marksObtained": section.marksObtained,
+          "sections.$.timeTaken": section.timeTaken,
+          "sections.$.totalMarks": section.totalMarks,
+          "sections.$.noOfquestions": section.noOfquestions,
+          "sections.$.totalDuration": section.totalDuration
+        }
+      },
+      { new: true }
     );
 
-    // recompute overall stats
+    if (!record) {
+      // ✅ If no matching section → push as new
+      record = await ExamSection.findOneAndUpdate(
+        { examName, emailAddress, fullName },
+        {
+          $push: { sections: section },
+          $setOnInsert: { status: 'in-progress', startedAt: new Date() }
+        },
+        { new: true, upsert: true }
+      );
+    }
+
+    // ✅ Recompute totals (still need to aggregate at app level)
     let totalMarksObtained = 0, totalMarks = 0, totalCorrectAll = 0, totalWrongAll = 0, totalQuestions = 0, totalTimeTaken = '00:00';
 
     record.sections.forEach(sec => {
-      totalMarksObtained += sec.marksObtained;
-      totalMarks += sec.totalMarks;
-      totalCorrectAll += sec.totalCorrect;
-      totalWrongAll += sec.totalWrong;
-      totalQuestions += sec.noOfquestions;
-      totalTimeTaken = addTimes(totalTimeTaken, sec.timeTaken);
+      totalMarksObtained += Number(sec.marksObtained || 0);
+      totalMarks += Number(sec.totalMarks || 0);
+      totalCorrectAll += Number(sec.correct || 0);
+      totalWrongAll += Number(sec.wrong || 0);
+      totalQuestions += Number(sec.noOfquestions || 0);
+      totalTimeTaken = addTimes(totalTimeTaken, sec.timeTaken || '00:00');
     });
 
-    record.totalMarksObtained = totalMarksObtained;
-    record.totalMarks = totalMarks;
-    record.totalCorrect = totalCorrectAll;
-    record.totalWrong = totalWrongAll;
-    record.totalQuestions = totalQuestions;
-    record.totalTimeTaken = totalTimeTaken;
-    await record.save();
+    await ExamSection.updateOne(
+      { _id: record._id },
+      {
+        $set: {
+          totalMarksObtained,
+          totalMarks,
+          totalCorrect: totalCorrectAll,
+          totalWrong: totalWrongAll,
+          totalQuestions,
+          totalTimeTaken,
+          ...(status && {
+            status,
+            completedAt: status === "completed" ? new Date() : undefined
+          })
+        }
+      }
+    );
 
-    res.json({ status: true, message: "Section added successfully", data: record });
+    res.json({ status: true, message: "Section saved successfully", data: record });
   } catch (error) {
     console.error("Error in /addSection:", error);
     res.status(500).json({ status: false, message: "Something went wrong" });
   }
 });
+
+// 📌 Start Exam Route
+router.post('/startExam', async (req, res) => {
+  try {
+    const { examName, emailAddress, fullName } = req.body;
+
+    if (!examName || !emailAddress || !fullName) {
+      return res.json({ status: false, message: "examName, emailAddress, fullName required" });
+    }
+
+    // Check if exam already started
+    let record = await ExamSection.findOne({ examName, emailAddress, fullName });
+
+    if (!record) {
+      // New exam attempt
+      record = new ExamSection({
+        examName,
+        emailAddress,
+        fullName,
+        status: "in-progress",
+        startedAt: new Date(), // set when exam starts
+      });
+    } else if (!record.startedAt) {
+      // Exam exists but no startedAt → set it
+      record.startedAt = new Date();
+      record.status = "in-progress";
+    }
+
+    await record.save();
+
+    res.json({ status: true, message: "Exam started successfully", data: record });
+  } catch (error) {
+    console.error("Error in /startExam:", error);
+    res.status(500).json({ status: false, message: "Something went wrong" });
+  }
+});
+
+router.get('/exam-result-summary', async (req, res) => {
+  const { emailAddress } = req.query;
+
+  if (!emailAddress) {
+    return res.json({ status: false, message: "emailAddress is required" });
+  }
+
+  try {
+    const tests = await ExamSection.find({ emailAddress }).sort({ createdAt: -1 });;
+
+    if (!tests || tests.length === 0) {
+      return res.json({ status: true, message: "No records found", data: [] });
+    }
+
+    const results = tests.map(test => {
+      let totalMarks = 0;
+      let marksReceived = 0;
+
+      (test.sections || []).forEach(section => {
+        const sectionMarks = section.totalMarks || 0;
+        const correct = (section.questions || []).filter(q => q.status === 'correct').length;
+
+        totalMarks += sectionMarks;
+        marksReceived += correct;
+      });
+
+      const percentage = totalMarks > 0
+        ? `${((marksReceived / totalMarks) * 100).toFixed(2)}%`
+        : "0.00%";
+
+      return {
+        examName: test.examName,
+        percentage,
+        status: getStatusFromPercentage(percentage)
+      };
+    });
+
+    res.json({ status: true, data: results });
+
+  } catch (err) {
+    console.error(err);
+    res.json({ status: false, message: "Server error" });
+  }
+});
+
 
 router.post('/exam-stats', async (req, res) => {
   try {
