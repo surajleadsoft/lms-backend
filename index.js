@@ -125,10 +125,8 @@ if (cluster.isPrimary) {
 
   // MongoDB Connection
   mongoose.set('strictQuery', false);
-  mongoose.connect('mongodb+srv://surajleadsoft:LeadSoft%40123@lms.s4b2zfu.mongodb.net/course-lms?retryWrites=true&w=majority&appName=lms', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    maxPoolSize: 100
+  mongoose.connect('mongodb+srv://surajleadsoft:LeadSoft%40123@lms.s4b2zfu.mongodb.net/course-lms?retryWrites=true&w=majority&appName=lms', {    
+    maxPoolSize: 200
   })
     .then(() => console.log(`✅ Worker ${process.pid} connected to MongoDB`))
     .catch(err => console.error("❌ DB Connection Failed:", err));
