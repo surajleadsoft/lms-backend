@@ -201,40 +201,94 @@ router.get('/exam-attempted', async (req, res) => {
 // -------------------------
 // Exam Summary
 // -------------------------
-router.post('/exam-summary', async (req, res) => {
+router.get('/exam-summary', async (req, res) => {
+  const { examName } = req.query;
+
+  if (!examName) {
+    return res.json({ status: false, error: "examName is required" });
+  }
+
   try {
-    const { examName, emailAddress, fullName } = req.body;
-    if (!examName || !emailAddress || !fullName) {
-      return res.json({ status: false, message: 'examName, emailAddress & fullName required' });
+    // 1. Fetch exam
+    const exam = await Exams.findOne({ examName }).lean();
+    if (!exam) {
+      return res.json({ status: false, message: "Exam not found" });
     }
 
-    const record = await ExamSection.findOne(
-      { examName, emailAddress, fullName },
-      { sections: 1 }
+    // 2. Fetch category
+    const categoryExam = await Category.findOne({ categoryName: exam.category }).lean();
+    if (!categoryExam) {
+      return res.json({ status: false, message: "Category not found" });
+    }
+
+    // 3. All active students of this category
+    const allStudents = await Student.find(
+      { "basic.courseName.courseName": categoryExam.courseName, "basic.isActive": true },
+      { "basic.firstName": 1, "basic.lastName": 1, "basic.emailAddress": 1 }
     ).lean();
 
-    if (!record) return res.json({ status: false, message: 'No record found' });
+    // 4. All attempted records for this exam
+    const attemptedStudents = await ExamSection.find({ examName }).lean();
 
-    const summary = record.sections.map(section => {
-      const totalCorrect = section.questions.filter(q => q.status === "correct").length;
-      const totalWrong = section.questions.filter(q => q.status === "wrong").length;
-      const marksObtained = ((totalCorrect / section.noOfquestions) * section.totalMarks).toFixed(2);
+    // Build map for O(1) lookup
+    const attemptedMap = new Map();
+    attemptedStudents.forEach(record => {
+      attemptedMap.set(record.emailAddress, record);
+    });
+
+    // 5. Prepare results
+    const results = allStudents.map(student => {
+      const fullName = `${student.basic.firstName} ${student.basic.lastName}`.trim();
+      const emailAddress = student.basic.emailAddress;
+      const examRecord = attemptedMap.get(emailAddress);
+
+      if (!examRecord) {
+        return {
+          fullName,
+          emailAddress,
+          examName,
+          markReceived: "-",
+          totalMarks: "-",
+          percentage: "Absent",
+          totalTimeTaken: "-",
+          status: "Absent",
+          sections: []
+        };
+      }
+
+      const { totalMarksObtained, totalCorrect, totalWrong, totalAttempted, totalTimeTaken, sections } = examRecord;
+
+      const totalMarks = sections.reduce((sum, sec) => sum + (sec.totalMarks || 0), 0);
+
+      const percentage = totalMarks > 0
+        ? `${((totalMarksObtained / totalMarks) * 100).toFixed(2)}%`
+        : "0.00%";
 
       return {
-        sectionName: section.sectionName,
-        totalCorrect,
-        totalWrong,
-        timeTaken: section.timeTaken,
-        marksObtained
+        fullName,
+        emailAddress,
+        examName,
+        markReceived: totalMarksObtained,
+        totalMarks,
+        percentage,
+        totalTimeTaken,
+        status: examRecord.status || "Present",
+        sections: sections.map(sec => ({
+          sectionName: sec.sectionName,
+          timeTaken: sec.timeTaken,
+          totalMarks: sec.totalMarks,
+          marksReceived: sec.marksObtained
+        }))
       };
     });
 
-    res.json({ status: true, message: 'Summary fetched successfully', data: summary });
-  } catch (error) {
-    console.error("Error in /exam-summary:", error);
-    res.status(500).json({ status: false, message: 'Something went wrong' });
+    res.json({ status: true, data: results });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ status: false, error: "Server error" });
   }
 });
+
 
 // -------------------------
 // Exam Result Summary
@@ -391,6 +445,93 @@ router.post('/addSection', async (req, res) => {
   }
 });
 
+router.post('/cheated-sections', async (req, res) => {
+  try {
+    const { examName, emailAddress, fullName, sections } = req.body;
+
+    if (!examName || !emailAddress || !fullName || !Array.isArray(sections)) {
+      return res.json({
+        status: false,
+        message: "examName, emailAddress, fullName, sections (array) required"
+      });
+    }
+
+    let record = await ExamSection.findOne({ examName, emailAddress, fullName });
+
+    if (!record) {
+      // Create new record if not exists
+      record = new ExamSection({
+        examName,
+        emailAddress,
+        fullName,
+        sections: [],
+        status: "cheated", // 🚨 FORCE CHEATED
+        startedAt: new Date()
+      });
+    }
+
+    for (let section of sections) {
+      if (!section.sectionName) continue;
+
+      const questions = Array.isArray(section.questions) ? section.questions : [];
+
+      // ✅ clear all answers when cheated
+      section.questions = questions.map(q => ({
+        ...q,
+        userAnswer: "",
+        status: "skipped"
+      }));
+
+      // ✅ Ensure safe defaults for required fields
+      const noOfquestions = Number(section.noOfquestions) || 0;
+      const totalMarks = Number(section.totalMarks) || 0;
+
+      // ✅ Per-section stats
+      section.noOfquestions = noOfquestions;
+      section.totalMarks = totalMarks;
+      section.attempted = 0; // cheating → 0 attempt
+      section.correct = 0;
+      section.wrong = 0;
+      section.marksObtained = 0;
+      section.timeTaken = "00:00";
+
+      // ✅ Update existing section or push new
+      const index = record.sections.findIndex(sec => sec.sectionName === section.sectionName);
+      if (index >= 0) {
+        record.sections[index] = { ...record.sections[index]._doc, ...section };
+      } else {
+        record.sections.push(section);
+      }
+    }
+
+    // ✅ Recompute overall stats but force 0
+    record.totalMarksObtained = 0;
+    record.totalMarks = record.sections.reduce((sum, s) => sum + (s.totalMarks || 0), 0);
+    record.totalCorrect = 0;
+    record.totalWrong = 0;
+    record.totalQuestions = record.sections.reduce((sum, s) => sum + (s.noOfquestions || 0), 0);
+    record.totalTimeTaken = "00:00";
+
+    // 🚨 FORCE STATUS TO CHEATED
+    record.status = "cheated";
+    record.completedAt = new Date();
+
+    await record.save();
+
+    res.json({
+      status: true,
+      message: "Sections saved successfully (cheated)",
+      data: record
+    });
+  } catch (error) {
+    console.error("Error in /cheated-sections:", error);
+    res.json({ status: false, message: "Something went wrong" });
+  }
+});
+
+
+
+
 // 📌 Start Exam Route
 router.post('/startExam', async (req, res) => {
   try {
@@ -472,7 +613,32 @@ router.get('/exam-result-summary', async (req, res) => {
   }
 });
 
+router.get('/stats', async (req, res) => {
+  try {
+    const [examCount, questionCount, categoryCount, attemptCount] = await Promise.all([
+      Exams.countDocuments(),
+      Question.countDocuments(),
+      Category.countDocuments(),
+      ExamSection.countDocuments()
+    ]);
 
+    res.json({
+      status: true,
+      data: {
+        totalExams: examCount,
+        totalQuestions: questionCount,
+        totalCategories: categoryCount,
+        totalExamAttempts: attemptCount
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching dashboard stats:', err);
+    res.json({
+      status: false,
+      message: 'Server error while fetching dashboard statistics.'
+    });
+  }
+});
 router.post('/exam-stats', async (req, res) => {
   try {
     const { examName } = req.body;
@@ -581,12 +747,80 @@ router.post('/exam/section-questions', async (req, res) => {
 router.get('/examName/:examName', async (req, res) => {
   try {
     const { examName } = req.params;
+
+    // Fetch all records for given examName
     const records = await ExamSection.find({ examName }).lean();
-    res.status(200).json(records);
+
+    if (!records || records.length === 0) {
+      return res.json({
+        status: true,          // keep true so frontend doesn’t treat it as error
+        progressCount: 0,
+        completedCount: 0,
+        avgPercentile: 0,
+        data: []
+      });
+    }
+
+    // Calculate status counts
+    const progressCount = records.filter(r => r.status === "in-progress").length;
+    const completedCount = records.filter(r => r.status === "completed").length;
+
+    // Find max possible marks for the exam
+    let maxMarks = 0;
+    if (records[0].sections && records[0].sections.length > 0) {
+      maxMarks = records[0].sections.reduce((sum, sec) => sum + (sec.totalMarks || 0), 0);
+    }
+
+    // Calculate average percentile (only for completed attempts)
+    let totalPercentile = 0;
+    let completedWithMarks = 0;
+
+    records.forEach(record => {
+      if (record.status === "completed" && maxMarks > 0) {
+        const percentile = (record.totalMarksObtained / maxMarks) * 100;
+        totalPercentile += percentile;
+        completedWithMarks++;
+      }
+    });
+
+    const avgPercentile = completedWithMarks > 0 ? (totalPercentile / completedWithMarks).toFixed(2) : 0;
+
+    res.json({
+      status: true,
+      progressCount,
+      completedCount,
+      avgPercentile,
+      data: records
+    });
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error(error);
+    res.json({ status: false, error: error.message });
   }
 });
+
+router.delete('/exam-reaccess/:examName/:emailAddress', async (req, res) => {
+  try {
+    const { examName, emailAddress } = req.params;
+
+    if (!examName || !emailAddress) {
+      return res.json({ status: false, message: "examName and emailAddress are required" });
+    }
+
+    const deletedRecord = await ExamSection.findOneAndDelete({ examName, emailAddress });
+
+    if (!deletedRecord) {
+      return res.json({ status: false, message: "No record found to delete" });
+    }
+
+    res.json({ status: true, message: "Record deleted successfully", data: deletedRecord });
+  } catch (error) {
+    console.error(error);
+    res.json({ status: false, error: error.message });
+  }
+});
+
+
 router.get('/result-by-user/:examName/:emailAddress', async (req, res) => {
   try {
     const { examName,emailAddress } = req.params;
