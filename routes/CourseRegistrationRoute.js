@@ -293,7 +293,7 @@ router.post('/add-class/:courseName', async (req, res) => {
 
 // ✅ Update a class
 router.put('/update-class/:courseName/:className', async (req, res) => {
-  const { className, startDate, endDate, time, status, sessionLink } = req.body;
+  const { className, startDate, endDate, time, status, sessionLink,isPaymentRequired } = req.body;
   try {
     const course = await Course.findOne({ courseName: req.params.courseName });
     if (!course) return res.json({ status: false, message: 'Course not found' });
@@ -301,7 +301,7 @@ router.put('/update-class/:courseName/:className', async (req, res) => {
     const index = course.classes.findIndex(c => c.className === req.params.className);
     if (index === -1) return res.json({ status: false, message: 'Class not found' });
 
-    course.classes[index] = { className, startDate, endDate, time, status, sessionLink };
+    course.classes[index] = { className, startDate, endDate, time, status, sessionLink,isPaymentRequired };
     await course.save();
     res.json({ status: true, message: 'Class updated' });
   } catch (err) {

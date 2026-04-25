@@ -274,6 +274,56 @@ router.get('/exam/by-exam-name/:examName/:category', async (req, res) => {
   }
 });
 
+router.put('/update-date-time/:examName/:category', async (req, res) => {
+  try {
+    const examName = req.params.examName;
+    const category = req.params.category;
+
+    const { examDate, examStartTime, examEndTime } = req.body;
+
+    // Validation
+    if (!examDate || !examStartTime || !examEndTime) {
+      return res.json({
+        status: false,
+        message: 'examDate, examStartTime and examEndTime are required'
+      });
+    }
+
+    const exam = await Exam.findOneAndUpdate(
+      { examName, category },
+      {
+        $set: {
+          examDate: new Date(examDate),
+          examStartTime,
+          examEndTime
+        }
+      },
+      { new: true }
+    );
+
+    if (!exam) {
+      return res.json({
+        status: false,
+        message: 'Exam not found'
+      });
+    }
+
+    res.json({
+      status: true,
+      message: 'Exam date and time updated successfully',
+      data: exam
+    });
+
+  } catch (error) {
+    res.json({
+      status: false,
+      message: 'Error updating exam',
+      error: error.message
+    });
+  }
+});
+
+
 router.get('/by-category/:category', async (req, res) => {
   try {
     const category = req.params.category;

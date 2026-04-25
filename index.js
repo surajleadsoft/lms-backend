@@ -5,6 +5,8 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const compression = require("compression");
 const helmet = require("helmet");
+const http = require("http");
+const WebSocket = require("ws");
 const rateLimit = require("express-rate-limit");
 const { default: axios } = require("axios");
 
@@ -58,7 +60,8 @@ if (cluster.isPrimary) {
   const openExamRoute = require('./routes/openExamRoute')
   const openUserRoute = require('./routes/OpenUserRoute')
 
-  const server = express();
+  const app = express();
+  const server = http.createServer(app);
 
   const corsOptions = {
     origin: [
@@ -77,63 +80,131 @@ if (cluster.isPrimary) {
   };
 
   // Middleware
-  server.use(cors(corsOptions));
-  server.use(express.json({ limit: '10mb' }));
-  server.use(compression());
-  server.use(helmet());
-  server.use('/uploads/resources', express.static('uploads/resources'));
+  app.use(cors(corsOptions));
+  app.use(express.json({ limit: '30mb' }));
+  app.use(compression());
+  app.use(helmet());
+  app.use('/uploads/resources', express.static('uploads/resources'));
 
   // Rate Limiting (per IP)
   const limiter = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 minute
-    max: 200, // max requests per IP per minute
+    max: 2000, // max requests per IP per minute
     message: 'Too many requests from this IP, please try again after a minute.'
   });
-  server.use(limiter);
+  app.use(limiter);
 
   // Routes
-  server.use('/api', studentRoutes);
-  server.use('/course', courseRoutes);
-  server.use('/module', moduleRoutes);
-  server.use('/content', contentRoutes);
-  server.use('/admin', adminRoutes);
-  server.use('/course-module', courseModuleRoute);
-  server.use('/course-video', courseVideoRoute);
-  server.use('/course-reg', courseRegistrationRoute);
-  server.use('/attendance', attendanceRoute);
-  server.use('/watch', watchVideoRoute);
-  server.use('/subject', subjectRoute);
-  server.use('/chapter', chapterRoute);
-  server.use('/category', categoryRoute);
-  server.use('/question', questionRoute);
-  server.use('/exam', examRoute);
-  server.use('/compile', compileRoute);
-  server.use('/exam-section', examSectionRoute);
-  server.use('/payment', paymentRoute);
-  server.use('/resource', resourceRoute);
-  server.use('/announce', annoucementRoute);
-  server.use('/campus', campusRoute);
-  server.use('/application', applicationRoute);
-  server.use('/learning',learningCourseRoute);
-  server.use('/chapter-completion',chapterCompletion);
-  server.use('/test-result',testResultRoute)
-  server.use('/leader',leaderboardRoute)
-  server.use('/coding',codingChaptersRoute)
-  server.use('/coding-completion',codingCompletionRoute)
-  server.use('/open-exam',openExamRoute)
-  server.use('/open-user',openUserRoute)
+  app.use('/api', studentRoutes);
+  app.use('/course', courseRoutes);
+  app.use('/module', moduleRoutes);
+  app.use('/content', contentRoutes);
+  app.use('/admin', adminRoutes);
+  app.use('/course-module', courseModuleRoute);
+  app.use('/course-video', courseVideoRoute);
+  app.use('/course-reg', courseRegistrationRoute);
+  app.use('/attendance', attendanceRoute);
+  app.use('/watch', watchVideoRoute);
+  app.use('/subject', subjectRoute);
+  app.use('/chapter', chapterRoute);
+  app.use('/category', categoryRoute);
+  app.use('/question', questionRoute);
+  app.use('/exam', examRoute);
+  app.use('/compile', compileRoute);
+  app.use('/exam-section', examSectionRoute);
+  app.use('/payment', paymentRoute);
+  app.use('/resource', resourceRoute);
+  app.use('/announce', annoucementRoute);
+  app.use('/campus', campusRoute);
+  app.use('/application', applicationRoute);
+  app.use('/learning', learningCourseRoute);
+  app.use('/chapter-completion', chapterCompletion);
+  app.use('/test-result', testResultRoute)
+  app.use('/leader', leaderboardRoute)
+  app.use('/coding', codingChaptersRoute)
+  app.use('/coding-completion', codingCompletionRoute)
+  app.use('/open-exam', openExamRoute)
+  app.use('/open-user', openUserRoute)
+
+  const WebSocket = require("ws");
+  const wss = new WebSocket.Server({ server });
+
+  const BASE = "http://127.0.0.1:8055";
+
+  wss.on("connection", (ws) => {
+    console.log("🟢 WebSocket Connected");
+
+    ws.on("message", async (message) => {
+      try {
+        const data = JSON.parse(message);
+
+        switch (data.type) {
+
+          case "START_EXAM":
+            const startRes = await axios.post(
+              `${BASE}/exam-section/startExam`,
+              data.payload
+            );
+            ws.send(JSON.stringify({
+              type: "EXAM_STARTED",
+              ...startRes.data
+            }));
+            break;
+
+          case "SAVE_SECTION":
+            const saveRes = await axios.post(
+              `${BASE}/exam-section/addSection`,
+              data.payload
+            );
+            ws.send(JSON.stringify({
+              type: "SECTION_SAVED",
+              ...saveRes.data
+            }));
+            break;
+
+          case "CHEATED":
+            const cheatRes = await axios.post(
+              `${BASE}/exam-section/cheated-sections`,
+              data.payload
+            );
+            ws.send(JSON.stringify({
+              type: "CHEATED_SAVED",
+              ...cheatRes.data
+            }));
+            break;
+
+          default:
+            ws.send(JSON.stringify({
+              status: false,
+              message: "Unknown type"
+            }));
+        }
+
+      } catch (err) {
+        ws.send(JSON.stringify({
+          status: false,
+          message: err.message
+        }));
+      }
+    });
+
+    ws.on("close", () => {
+      console.log("🔴 WebSocket Disconnected");
+    });
+  });
+
 
   // MongoDB Connection
   mongoose.set('strictQuery', false);
-  mongoose.connect('mongodb+srv://surajleadsoft:LeadSoft%40123@lms.s4b2zfu.mongodb.net/course-lms?retryWrites=true&w=majority&appName=lms', {    
-    maxPoolSize: 200
+  mongoose.connect('mongodb://localhost:27017/course-lms', {
+    maxPoolSize: 300
   })
     .then(() => console.log(`✅ Worker ${process.pid} connected to MongoDB`))
     .catch(err => console.error("❌ DB Connection Failed:", err));
 
   // Judge0 Setup
   const PORT = 8055;
-  const JUDGE0_URL = "https://judge0-ce.p.rapidapi.com/submissions"; 
+  const JUDGE0_URL = "https://judge0-ce.p.rapidapi.com/submissions";
   const API_KEY = "90b6e44b46msh7cf016e49d43e06p16ec0fjsn433cfec9a908";
 
   const languages = {
@@ -143,7 +214,7 @@ if (cluster.isPrimary) {
     python3: 71,
   };
 
-  server.post("/run", async (req, res) => {
+  app.post("/run", async (req, res) => {
     try {
       const { language, code, input, expectedOutput } = req.body;
 
@@ -205,7 +276,7 @@ if (cluster.isPrimary) {
     }
   });
 
-  server.post("/submit", async (req, res) => {
+  app.post("/submit", async (req, res) => {
     try {
       const { language, code, input, expectedOutput } = req.body;
 

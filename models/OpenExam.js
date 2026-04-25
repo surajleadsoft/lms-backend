@@ -17,6 +17,8 @@ const SectionSchema = new mongoose.Schema({
   chapters: [ChapterSchema]
 });
 
+
+
 // helper → generate lowercase random string
 function generateExamId() {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -66,6 +68,22 @@ OpenExamSchema.pre('validate', async function (next) {
   }
   next();
 });
+
+// Drop unwanted indexes (like old 'category' index) if they exist
+OpenExamSchema.pre('init', async function () {
+  try {
+    const indexes = await mongoose.model('OpenExam').collection.indexes();
+    const categoryIndex = indexes.find(i => i.name.includes('category'));
+
+    if (categoryIndex) {
+      await mongoose.model('OpenExam').collection.dropIndex(categoryIndex.name);
+      console.log('✅ Dropped old category index successfully');
+    }
+  } catch (err) {
+    console.log('⚠️ Index cleanup skipped:', err.message);
+  }
+});
+
 
 // ✅ Indexes for performance
 OpenExamSchema.index({ examId: 1 });
