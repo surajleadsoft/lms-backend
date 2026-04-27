@@ -313,8 +313,11 @@ const populateTemplate1 = (template, data) => {
 };
 
 const sendEmail = async (toEmail, data) => {
-  
-  const rawTemplate = loadTemplate();
+  coursesInfo=[]
+  if(data.courseName.contains("-")){
+    coursesInfo = data.courseName.split("-")
+  }
+  const rawTemplate = loadTemplate(coursesInfo[0] | "");
   const html = populateTemplate1(rawTemplate, data);
 
   const mailOptions = {
