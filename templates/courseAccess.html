@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Access Details</title>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f4f6f8;
+            font-family: Arial, sans-serif;
+            color: #333;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 30px auto;
+            background: #ffffff;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+        }
+
+        .header {
+            text-align: center;
+            background: linear-gradient(135deg, #6a11cb, #2575fc);
+            padding: 25px 20px;
+            color: #fff;
+        }
+
+        .header img {
+            max-width: 140px;
+            margin-bottom: 10px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 22px;
+        }
+
+        .content {
+            padding: 25px;
+        }
+
+        .content p {
+            margin: 12px 0;
+            font-size: 15px;
+        }
+
+        .highlight-box {
+            background: #f8f9fb;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #6a11cb;
+        }
+
+        .highlight-box p {
+            margin: 8px 0;
+        }
+
+        .button {
+            display: inline-block;
+            padding: 12px 25px;
+            background: #6a11cb;
+            color: #ffffff !important;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin-top: 15px;
+        }
+
+        .note {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #555;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 12px;
+            color: #888;
+            background: #fafafa;
+            border-top: 1px solid #eee;
+        }
+
+        .footer a {
+            color: #6a11cb;
+            text-decoration: none;
+        }
+
+        /* Responsive */
+        @media only screen and (max-width: 600px) {
+            .container {
+                margin: 0;
+                border-radius: 0;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .button {
+                display: block;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <div class="header">
+        <img src="https://leadsoft.academy/Assets/Images/logo_1.png" alt="LeadSoft Logo">
+        <h1>Welcome to {{courseName}}</h1>
+    </div>
+
+    <div class="content">
+
+        <p>Dear <strong>{{studentName}}</strong>,</p>
+
+        <p>
+            You have been successfully enrolled in 
+            <strong style="color:#6a11cb;">{{courseName}}</strong> through your college.
+        </p>
+
+        <p>
+            Please use the credentials below to access your learning dashboard:
+        </p>
+
+        <div class="highlight-box">
+            <p><strong>Login URL:</strong> <a href="{{loginUrl}}">{{loginUrl}}</a></p>
+            <p><strong>Email:</strong> {{studentEmail}}</p>
+            <p><strong>Password:</strong> {{studentPassword}}</p>
+        </div>
+
+        <p class="note">
+            ⚠️ <strong>Important:</strong> You must change your password immediately after logging in for security reasons.
+        </p>
+
+        <a href="{{loginUrl}}" class="button">Login to Your Account</a>
+
+        <p>
+            If you face any issues, contact us at 
+            <a href="mailto:suraj.leadsoft@gmail.com">suraj.leadsoft@gmail.com</a>.
+        </p>
+
+        <p>All the best for your learning journey!</p>
+
+    </div>
+
+    <div class="footer">
+        <p>&copy; {{currentYear}} LeadSoft Placement Academy. All rights reserved.</p>
+        <p>
+            <a href="{{privacyPolicyUrl}}">Privacy Policy</a> |
+            <a href="{{termsUrl}}">Terms of Service</a>
+        </p>
+    </div>
+
+</div>
+
+</body>
+</html>

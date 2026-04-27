@@ -292,8 +292,8 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-const loadTemplate = () => {
-  const filePath = path.join(__dirname, '../templates', 'register.html');
+const loadTemplate = (courseName) => {
+  const filePath = path.join(__dirname, '../templates', courseName === 'Skill Assessment Hub' ? 'courseAccess.html' : 'register.html');
   return fs.readFileSync(filePath, 'utf-8');
 };
 

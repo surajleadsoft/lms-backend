@@ -10,24 +10,7 @@ const WebSocket = require("ws");
 const rateLimit = require("express-rate-limit");
 const { default: axios } = require("axios");
 
-// Check if primary process
-if (cluster.isPrimary) {
-  const numCPUs = os.cpus().length;
-  console.log(`👑 Master ${process.pid} is running`);
-  console.log(`⚡ Spawning ${numCPUs} workers...`);
 
-  // Fork workers
-  for (let i = 0; i < numCPUs; i++) {
-    cluster.fork();
-  }
-
-  // If a worker dies, restart it
-  cluster.on("exit", (worker, code, signal) => {
-    console.log(`❌ Worker ${worker.process.pid} died. Restarting...`);
-    cluster.fork();
-  });
-
-} else {
   // ------------ Worker Process (Your Express app) ------------
   const studentRoutes = require('./routes/studentRoute');
   const courseRoutes = require('./routes/courseRoutes');
@@ -126,7 +109,7 @@ if (cluster.isPrimary) {
   app.use('/open-exam', openExamRoute)
   app.use('/open-user', openUserRoute)
 
-  const WebSocket = require("ws");
+
   const wss = new WebSocket.Server({ server });
 
   const BASE = "http://127.0.0.1:8055";
@@ -341,4 +324,4 @@ if (cluster.isPrimary) {
   server.listen(PORT, () => {
     console.log(`🚀 Worker ${process.pid} started on port ${PORT}`);
   });
-}
+
