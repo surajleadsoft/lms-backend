@@ -16,6 +16,8 @@ router.post('/add', async (req, res) => {
   }
 });
 
+const normalize = (value) => (value || '').trim().toLowerCase();
+
 router.get('/unapplied-upcoming/:emailAddress', async (req, res) => {
   const { emailAddress } = req.params;
   const today = new Date();
@@ -27,7 +29,7 @@ router.get('/unapplied-upcoming/:emailAddress', async (req, res) => {
 
     const appliedSet = new Set(
       userApplications.map(app =>
-        `${app.companyName.trim().toLowerCase()}|${app.driveName.trim().toLowerCase()}|${app.position.trim().toLowerCase()}`
+        `${normalize(app.companyName)}|${normalize(app.driveName)}|${normalize(app.position)}`
       )
     );
 
