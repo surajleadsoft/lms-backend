@@ -103,68 +103,61 @@ router.post('/exam', async (req, res) => {
 //   }
 // });
 
-router.get('/exam/full/:examName/:category/', async (req, res) => {
+router.get('/exam/full/:examName/:category', async (req, res) => {
   const { examName, category } = req.params;
 
   try {
     const exam = await Exam.findOne({ examName, category }).lean();
-    if (!exam || !Array.isArray(exam.sections)) {
+
+    if (!exam?.sections?.length) {
       return res.json({ status: false, message: 'Exam not found or sections missing' });
     }
 
-    const allChapterPromises = [];
-    const sectionMap = new Map();
+    const chapterMap = new Map();
 
+    // Step 1: Collect all chapters
     for (const section of exam.sections) {
-      if (!Array.isArray(section.chapters)) {
-        continue;
-      }
-
-      for (const chapter of section.chapters) {
+      for (const chapter of section.chapters || []) {
         const { subjectName, chapterName, noOfquestions } = chapter;
-        if (subjectName && chapterName && noOfquestions && !isNaN(noOfquestions)) {
-          const sampleSize = parseInt(noOfquestions);
 
-          // Create a promise for each chapter's aggregation query
-          const chapterPromise = Question.aggregate([
-            { $match: { subjectName, chapterName } },
-            { $sample: { size: sampleSize } }
-          ]).then(questions => ({
-            sectionName: section.sectionName,
-            chapterName: chapter.chapterName,
-            subjectName: subjectName,
-            questions: questions
-          }));
-
-          allChapterPromises.push(chapterPromise);
+        if (subjectName && chapterName && noOfquestions) {
+          const key = `${subjectName}-${chapterName}`;
+          chapterMap.set(key, {
+            subjectName,
+            chapterName,
+            limit: parseInt(noOfquestions)
+          });
         }
       }
     }
 
-    // Execute all chapter queries in parallel
-    const chapterResults = await Promise.all(allChapterPromises);
+    // Step 2: Fetch all questions in parallel (NO multiple sampling)
+    const queries = Array.from(chapterMap.values()).map(ch =>
+      Question.aggregate([
+        { $match: { subjectName: ch.subjectName, chapterName: ch.chapterName } },
+        { $project: { questionText: 1, options: 1, difficultyLevel: 1, companyTags: 1, answer: 1 } },
+        { $sample: { size: ch.limit } }
+      ]).then(result => ({
+        key: `${ch.subjectName}-${ch.chapterName}`,
+        questions: result
+      }))
+    );
 
-    // Build the final exam object from the results
-    const fullSections = [];
-    const sectionData = new Map(); // Use a Map for efficient lookup
+    const results = await Promise.all(queries);
 
-    // Initialize section data
-    exam.sections.forEach(sec => {
-      sectionData.set(sec.sectionName, {
-        sectionName: sec.sectionName,
-        duration: sec.duration,
-        totalMarks: sec.totalMarks,
-        totalQuestions: 0,
-        questions: []
-      });
-    });
+    const questionBank = new Map(results.map(r => [r.key, r.questions]));
 
-    // Populate sections with questions from the results
-    for (const result of chapterResults) {
-      if (sectionData.has(result.sectionName)) {
-        const section = sectionData.get(result.sectionName);
-        for (const q of result.questions) {
-          section.questions.push({
+    // Step 3: Build final sections
+    const finalSections = exam.sections.map(sec => {
+      let totalQuestions = 0;
+      const questions = [];
+
+      for (const chapter of sec.chapters || []) {
+        const key = `${chapter.subjectName}-${chapter.chapterName}`;
+        const chapterQuestions = questionBank.get(key) || [];
+
+        chapterQuestions.forEach(q => {
+          questions.push({
             _id: q._id,
             questionText: q.questionText,
             options: q.options,
@@ -173,25 +166,29 @@ router.get('/exam/full/:examName/:category/', async (req, res) => {
             answer: q.answer ? Buffer.from(q.answer.toString()).toString('base64') : '',
             userAnswer: ''
           });
-          section.totalQuestions++;
-        }
+        });
+
+        totalQuestions += chapterQuestions.length;
       }
-    }
 
-    const finalSections = Array.from(sectionData.values());
+      return {
+        sectionName: sec.sectionName,
+        duration: sec.duration,
+        totalMarks: sec.totalMarks,
+        totalQuestions,
+        questions
+      };
+    });
 
-    // Calculate final totals
     const totalQuestions = finalSections.reduce((sum, sec) => sum + sec.totalQuestions, 0);
-    const totalDuration = exam.duration;
-    const sectionNames = finalSections.map(sec => sec.sectionName).join(', ');
 
     const finalExamObj = {
       examName,
       category,
       qualificationCriteria: exam.qualificationCriteria,
-      sectionNames,
+      sectionNames: finalSections.map(s => s.sectionName).join(', '),
       totalQuestions,
-      totalDuration,
+      totalDuration: exam.duration,
       sections: finalSections
     };
 
