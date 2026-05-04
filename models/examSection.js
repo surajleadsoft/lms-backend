@@ -14,7 +14,11 @@ const questionSchema = new mongoose.Schema({
     type: String, 
     enum: ['correct', 'wrong', 'skipped'], 
     default: 'skipped' 
-  } 
+  },
+  obtainedMarks: {
+    type: Number,
+    default: 0
+  }
 }); 
 
 const sectionSchema = new mongoose.Schema({ 
@@ -22,7 +26,6 @@ const sectionSchema = new mongoose.Schema({
   totalDuration: { type: Number, required: true }, // in minutes/seconds 
   totalMarks: { type: Number, required: true }, 
   noOfquestions: { type: Number, required: true }, 
-  timeTaken: { type: String }, // optional
   questions: [questionSchema],
 
   // ✅ Pre-computed per-section stats
