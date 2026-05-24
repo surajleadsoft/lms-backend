@@ -848,4 +848,232 @@ router.get('/user', async (req, res) => {
   }
 });
 
+router.post('/addSection1', async (req, res) => {
+  try {
+    const { examName, emailAddress, fullName, section, status } = req.body;
+
+    if (!examName || !emailAddress || !fullName || !section) {
+      return res.json({
+        status: false,
+        message: "examName, emailAddress, fullName, section required"
+      });
+    }
+
+    const questions = Array.isArray(section.questions)
+      ? section.questions
+      : [];
+
+    const attempted = questions.filter(q => q.userAnswer).length;
+    const correct = questions.filter(q => q.status === "correct").length;
+    const wrong = questions.filter(q => q.status === "wrong").length;
+
+    const marksObtained =
+      section.noOfquestions > 0
+        ? Number(
+            ((correct / section.noOfquestions) * section.totalMarks).toFixed(2)
+          )
+        : 0;
+
+    section.attempted = attempted;
+    section.correct = correct;
+    section.wrong = wrong;
+    section.marksObtained = marksObtained;
+
+    let record = await ExamSection.findOneAndUpdate(
+      {
+        examName,
+        emailAddress,
+        fullName,
+        "sections.sectionName": section.sectionName
+      },
+      {
+        $set: {
+          "sections.$": section
+        }
+      },
+      { new: true }
+    );
+
+    if (!record) {
+      record = await ExamSection.findOneAndUpdate(
+        { examName, emailAddress, fullName },
+        {
+          $push: { sections: section },
+          $setOnInsert: {
+            startedAt: new Date(),
+            status: "in-progress"
+          }
+        },
+        {
+          new: true,
+          upsert: true
+        }
+      );
+    }
+
+    let totalAttempted = 0;
+    let totalCorrect = 0;
+    let totalWrong = 0;
+    let totalMarksObtained = 0;
+    let totalTimeTaken = "00:00";
+
+    record.sections.forEach(sec => {
+      totalAttempted += sec.attempted || 0;
+      totalCorrect += sec.correct || 0;
+      totalWrong += sec.wrong || 0;
+      totalMarksObtained += sec.marksObtained || 0;
+      totalTimeTaken = addTimes(
+        totalTimeTaken,
+        sec.timeTaken || "00:00"
+      );
+    });
+
+    await ExamSection.updateOne(
+      { _id: record._id },
+      {
+        $set: {
+          totalAttempted,
+          totalCorrect,
+          totalWrong,
+          totalMarksObtained,
+          totalTimeTaken,
+          ...(status && {
+            status,
+            completedAt:
+              status === "completed"
+                ? new Date()
+                : undefined
+          })
+        }
+      }
+    );
+
+    res.json({
+      status: true,
+      message: "Section saved successfully",
+      data: record
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      status: false,
+      message: "Server error"
+    });
+  }
+});
+
+router.get('/exam-attempted1', async (req, res) => {
+  try {
+
+    const { emailAddress } = req.query;
+
+    const records = await ExamSection.find({
+      emailAddress
+    })
+    .populate('sections.questions.questionId')
+    .lean();
+
+    res.json({
+      status: true,
+      records
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      status: false
+    });
+
+  }
+});
+
+router.get('/exam-result-summary1', async (req, res) => {
+
+  try {
+
+    const { emailAddress } = req.query;
+
+    const tests = await ExamSection.find({
+      emailAddress
+    }).lean();
+
+    const results = tests.map(test => {
+
+      const totalMarks = test.sections.reduce(
+        (sum, sec) => sum + sec.totalMarks,
+        0
+      );
+
+      const percentage =
+        totalMarks > 0
+          ? (
+              (test.totalMarksObtained / totalMarks) *
+              100
+            ).toFixed(2) + "%"
+          : "0.00%";
+
+      return {
+        examName: test.examName,
+        percentage,
+        status: getStatusFromPercentage(percentage)
+      };
+
+    });
+
+    res.json({
+      status: true,
+      data: results
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      status: false
+    });
+
+  }
+
+});
+
+router.get('/result-by-user1/:examName/:emailAddress',async (req, res) => {
+
+    try {
+
+      const {
+        examName,
+        emailAddress
+      } = req.params;
+
+      const records = await ExamSection.find({
+        examName,
+        emailAddress
+      })
+      .populate('sections.questions.questionId')
+      .lean();
+
+      res.json({
+        status: true,
+        message: records
+      });
+
+    } catch (error) {
+
+      console.error(error);
+
+      res.status(500).json({
+        status: false
+      });
+
+    }
+
+  }
+);
+
+
 module.exports = router;

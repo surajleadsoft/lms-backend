@@ -42,6 +42,7 @@ const { default: axios } = require("axios");
   const codingCompletionRoute = require('./routes/codingCompletionRoute');
   const openExamRoute = require('./routes/openExamRoute')
   const openUserRoute = require('./routes/OpenUserRoute')
+  const codingQuestionRoute = require('./routes/codingQuestionRoute')
 
   const app = express();
   const server = http.createServer(app);
@@ -108,6 +109,7 @@ const { default: axios } = require("axios");
   app.use('/coding-completion', codingCompletionRoute)
   app.use('/open-exam', openExamRoute)
   app.use('/open-user', openUserRoute)
+  app.use('/coding-question',codingQuestionRoute)
 
 
   const wss = new WebSocket.Server({ server });
@@ -136,7 +138,7 @@ const { default: axios } = require("axios");
 
           case "SAVE_SECTION":
             const saveRes = await axios.post(
-              `${BASE}/exam-section/addSection`,
+              `${BASE}/exam-section/addSection1`,
               data.payload
             );
             ws.send(JSON.stringify({
