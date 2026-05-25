@@ -43,6 +43,7 @@ const { default: axios } = require("axios");
   const openExamRoute = require('./routes/openExamRoute')
   const openUserRoute = require('./routes/OpenUserRoute')
   const codingQuestionRoute = require('./routes/codingQuestionRoute')
+  const feedbackRoute = require('./routes/feedbackRoutes')
 
   const app = express();
   const server = http.createServer(app);
@@ -110,6 +111,7 @@ const { default: axios } = require("axios");
   app.use('/open-exam', openExamRoute)
   app.use('/open-user', openUserRoute)
   app.use('/coding-question',codingQuestionRoute)
+  app.use('/feedback',feedbackRoute)
 
 
   const wss = new WebSocket.Server({ server });

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const CourseModule = require('../models/CourseModule'); // adjust the path as needed
+const Course = require('../models/Course')
 
 // INSERT - Prevent duplicates
 router.post('/add', async (req, res) => {
@@ -24,12 +25,14 @@ router.post('/add', async (req, res) => {
 router.get('/:courseName', async (req, res) => {
   const courseName = req.params.courseName
 
+
   try {
     const module = await CourseModule.find({ courseName });
+    const courseDetails = await Course.findOne({ courseName })
     if (!module) {
       return res.json({status:false, message: 'Module not found.' });
     }
-    res.json({status:true,message:module});
+    res.json({status:true,message:module,isComplete:courseDetails.isComplete});
   } catch (err) {
     res.json({status:false, message: 'Server error.', error: err.message });
   }

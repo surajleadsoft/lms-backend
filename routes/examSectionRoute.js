@@ -749,7 +749,7 @@ router.get('/examName/:examName', async (req, res) => {
     const { examName } = req.params;
 
     // Fetch all records for given examName
-    const records = await ExamSection.find({ examName }).lean();
+    const records = await ExamSection.find({ examName}).lean();
 
     if (!records || records.length === 0) {
       return res.json({
