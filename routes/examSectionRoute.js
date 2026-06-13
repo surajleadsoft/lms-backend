@@ -799,6 +799,166 @@ router.get('/examName/:examName', async (req, res) => {
   }
 });
 
+router.get('/exam-report/:examName', async (req, res) => {
+  try {
+
+    const { examName } = req.params;
+
+    // Get Exam
+    const exam = await Exams.findOne({ examName }).lean();
+
+    if (!exam) {
+      return res.json({
+        status: false,
+        message: "Exam not found"
+      });
+    }
+
+    // Get Category
+    const category = await Category.findOne({
+      categoryName: exam.category
+    }).lean();
+
+    if (!category) {
+      return res.json({
+        status: false,
+        message: "Category not found"
+      });
+    }
+
+    // Get all enrolled students
+    const students = await Student.find({
+      "basic.courseName.courseName": category.courseName,
+      "basic.active":true
+    }).lean();
+
+    // Get all exam attempts
+    const attempts = await ExamSection.find({ examName }).lean();
+
+    // Create set of attempted emails
+    const attemptedEmails = new Set(
+      attempts.map(x => x.emailAddress)
+    );
+
+    // Start with attempted students
+    const finalData = [...attempts];
+
+    // Add absent students
+    students.forEach(student => {
+
+      const email = student.basic.emailAddress;
+
+      if (!attemptedEmails.has(email)) {
+
+        finalData.push({
+          fullName: `${student.basic.firstName} ${student.basic.lastName}`,
+          emailAddress: email,
+          mobileNo: student.basic.mobileNo,
+          examName,
+          status: "not started",
+          attendance: "Absent",
+          totalCorrect: 0,
+          totalWrong: 0,
+          totalMarksObtained: 0,
+          totalTimeTaken: "-",
+          startedAt: null,
+          completedAt: null
+        });
+      }
+    });
+
+    // Counts
+    const progressCount = finalData.filter(
+      x => x.status === "in-progress"
+    ).length;
+
+    const completedCount = finalData.filter(
+      x => x.status === "completed"
+    ).length;
+
+    const absentCount = finalData.filter(
+      x => x.status === "not started"
+    ).length;
+
+    const cheatedCount = finalData.filter(
+      x => x.status === "cheated"
+    ).length;
+
+    const attemptedCount =
+      completedCount +
+      progressCount +
+      cheatedCount;
+
+    // Average Percentile
+    const maxMarks = Number(exam.totalMarks || 0);
+
+    const attemptedStudents = finalData.filter(
+      x =>
+        x.status === "completed" ||
+        x.status === "in-progress" ||
+        x.status === "cheated"
+    );
+
+    let avgPercentile = 0;
+
+    if (attemptedStudents.length > 0 && maxMarks > 0) {
+
+      const totalPercentile = attemptedStudents.reduce(
+        (sum, student) => {
+
+          const obtainedMarks = Number(
+            student.totalMarksObtained || 0
+          );
+
+          const percentile =
+            (obtainedMarks / maxMarks) * 100;
+
+          return sum + percentile;
+
+        },
+        0
+      );
+
+      avgPercentile = (
+        totalPercentile /
+        attemptedStudents.length
+      ).toFixed(2);
+    }
+
+    // Attendance Percentage
+    const attendancePercentage =
+      finalData.length > 0
+        ? (
+            (attemptedCount / finalData.length) *
+            100
+          ).toFixed(2)
+        : 0;
+
+    res.json({
+      status: true,
+      totalStudents: finalData.length,
+      attemptedCount,
+      absentCount,
+      progressCount,
+      completedCount,
+      cheatedCount,
+      attendancePercentage,
+      avgPercentile,
+      data: finalData
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.json({
+      status: false,
+      error: error.message
+    });
+
+  }
+});
+
 router.delete('/exam-reaccess/:examName/:emailAddress', async (req, res) => {
   try {
     const { examName, emailAddress } = req.params;
@@ -1075,5 +1235,75 @@ router.get('/result-by-user1/:examName/:emailAddress',async (req, res) => {
   }
 );
 
+router.post('/checkResume', async (req, res) => {
+  try {
+
+    const {
+      examName,
+      emailAddress
+    } = req.body;
+
+    if (!examName || !emailAddress) {
+      return res.json({
+        status: false,
+        message: "examName and emailAddress are required"
+      });
+    }
+
+    const record = await ExamSection.findOne({
+      examName,
+      emailAddress
+    }).lean();
+
+    if (!record) {
+      return res.json({
+        status: true,
+        resumeAvailable: false
+      });
+    }
+
+    if (
+      record.status === "completed" ||
+      record.status === "cheated"
+    ) {
+      return res.json({
+        status: true,
+        resumeAvailable: false
+      });
+    }
+
+    const lastSectionIndex =
+      Math.max((record.sections?.length || 1) - 1, 0);
+
+    const lastSection =
+      record.sections?.[lastSectionIndex];
+
+    return res.json({
+      status: true,
+      resumeAvailable: true,
+      data: {
+        examName: record.examName,
+        emailAddress: record.emailAddress,
+        fullName: record.fullName,
+        status: record.status,
+        activeSectionIndex: lastSectionIndex,
+        activeQuestionIndex: 0,
+        sectionName:
+          lastSection?.sectionName || "",
+        startedAt: record.startedAt
+      }
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.json({
+      status: false,
+      message: "Something went wrong"
+    });
+
+  }
+});
 
 module.exports = router;

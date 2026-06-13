@@ -323,25 +323,45 @@ router.put('/update-date-time/:examName/:category', async (req, res) => {
 
 router.get('/by-category/:category', async (req, res) => {
   try {
+
     const category = req.params.category;
     const { email } = req.query;
 
     const exams = await Exam.find({ category });
-    if (!exams || exams.length === 0) {
-      return res.json({ status: false, message: 'No exams found for this category' });
+
+    if (!exams.length) {
+      return res.json({
+        status: false,
+        message: 'No exams found for this category'
+      });
     }
 
     const examsWithAttemptStatus = await Promise.all(
+
       exams.map(async (exam) => {
-        const isAttempted = await ExamSection.exists({
-          emailAddress: email,
-          examName: exam.examName
-        });
+
+        const attempt = await ExamSection.findOne(
+          {
+            emailAddress: email,
+            examName: exam.examName
+          },
+          {
+            status: 1
+          }
+        ).lean();
+
         return {
           ...exam._doc,
-          attempted: !!isAttempted
+
+          attempted:
+            attempt?.status === "completed",
+
+          status:
+            attempt?.status || null
         };
+
       })
+
     );
 
     res.json({
@@ -349,12 +369,15 @@ router.get('/by-category/:category', async (req, res) => {
       message: 'Exams fetched successfully',
       data: examsWithAttemptStatus
     });
+
   } catch (error) {
+
     res.json({
       status: false,
       message: 'Error fetching exams',
       error: error.message
     });
+
   }
 });
 
