@@ -8,6 +8,7 @@ const helmet = require("helmet");
 const http = require("http");
 const WebSocket = require("ws");
 const rateLimit = require("express-rate-limit");
+const { executeJudge0 } = require("./services/judgeService");
 const { default: axios } = require("axios");
 
 
@@ -69,6 +70,7 @@ const { default: axios } = require("axios");
   app.use(express.json({ limit: '30mb' }));
   app.use(compression());
   app.use(helmet());
+  app.use("/uploads", express.static("uploads"));
   app.use('/uploads/resources', express.static('uploads/resources'));
 
   // Rate Limiting (per IP)
@@ -201,130 +203,1092 @@ const { default: axios } = require("axios");
     python3: 71,
   };
 
-  app.post("/run", async (req, res) => {
-    try {
-      const { language, code, input, expectedOutput } = req.body;
 
-      if (!languages[language]) {
-        return res.json({ status: false, error: "Unsupported language" });
-      }
 
-      const submission = await axios.post(
-        `${JUDGE0_URL}?base64_encoded=false&wait=true`,
-        {
-          source_code: code,
-          stdin: input,
-          language_id: languages[language],
-        },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            "X-RapidAPI-Key": API_KEY,
-            "X-RapidAPI-Host": "judge0-ce.p.rapidapi.com",
-          },
-        }
-      );
+const buildBatchInput = (testCases) => {
 
-      const result = submission.data;
+    return [
 
-      const responseData = {
-        status: result.status,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        compile_output: result.compile_output,
-        time: result.time,
-        memory: result.memory,
-        verdict: "Wrong Answer",
-        compilationError: null,
-      };
+        testCases.length,
 
-      if (result.compile_output) {
-        const compileError = result.compile_output;
-        const lineMatch = compileError.match(/:(\d+):/);
-        const line = lineMatch ? parseInt(lineMatch[1]) : null;
+        ...testCases.map(
+            testCase =>
+                String(
+                    testCase.input || ""
+                ).trim()
+        )
 
-        responseData.compilationError = {
-          message: compileError,
-          line: line,
-        };
-        responseData.verdict = "Compilation Error";
-      } else if (result.stdout && expectedOutput && result.stdout.trim() === expectedOutput.trim()) {
-        responseData.verdict = "Accepted";
-      }
+    ].join("\n");
+};
 
-      res.json(responseData);
-    } catch (error) {
-      console.error(error.response?.data || error.message);
-      res.json({
-        status: false,
-        error: "Something went wrong",
-        details: error.response?.data,
-      });
+const normalizeOutput = (output) => {
+
+    if (!output) {
+        return [];
     }
-  });
 
-  app.post("/submit", async (req, res) => {
+    return String(output)
+        .trim()
+        .split(/\r?\n/)
+        .map(line => line.trim());
+};
+
+
+app.post("/run", async (req, res) => {
+
     try {
-      const { language, code, input, expectedOutput } = req.body;
 
-      if (!languages[language]) {
-        return res.json({ status: false, error: "Unsupported language" });
-      }
+        const {
+            questionId,
+            language,
+            code,
+            testCase,
+            input,
+            expectedOutput
+        } = req.body;
 
-      const submission = await axios.post(
-        `${JUDGE0_URL}?base64_encoded=false&wait=true`,
-        {
-          source_code: code,
-          stdin: input,
-          language_id: languages[language],
-        },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            "X-RapidAPI-Key": API_KEY,
-            "X-RapidAPI-Host": "judge0-ce.p.rapidapi.com",
-          },
+
+        console.log("");
+        console.log("========================================");
+        console.log("▶ /RUN - SINGLE TEST CASE");
+        console.log("========================================");
+
+
+        // =========================================================
+        // VALIDATION
+        // =========================================================
+
+        if (!questionId) {
+
+            return res.status(400).json({
+
+                status: false,
+
+                verdict:
+                    "Invalid Question",
+
+                error:
+                    "questionId is required"
+            });
         }
-      );
 
-      const result = submission.data;
 
-      const responseData = {
-        status: result.status,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        compile_output: result.compile_output,
-        time: result.time,
-        memory: result.memory,
-        verdict: "Wrong Answer",
-        compilationError: null,
-      };
+        if (!languages[language]) {
 
-      if (result.compile_output) {
-        const compileError = result.compile_output;
-        const lineMatch = compileError.match(/:(\d+):/);
-        const line = lineMatch ? parseInt(lineMatch[1]) : null;
+            return res.status(400).json({
 
-        responseData.compilationError = {
-          message: compileError,
-          line: line,
-        };
-        responseData.verdict = "Compilation Error";
-      } else if (result.stdout && expectedOutput && result.stdout.trim() === expectedOutput.trim()) {
-        responseData.verdict = "Accepted";
-      }
+                status: false,
 
-      res.json(responseData);
+                verdict:
+                    "Unsupported Language",
+
+                error:
+                    "Unsupported language"
+            });
+        }
+
+
+        if (
+            typeof code !== "string" ||
+            !code.trim()
+        ) {
+
+            return res.status(400).json({
+
+                status: false,
+
+                verdict:
+                    "Invalid Code",
+
+                error:
+                    "Code is required"
+            });
+        }
+
+
+        // testCase must be a single number
+        const testCaseNumber =
+            Number(testCase);
+
+
+        if (
+            !Number.isInteger(
+                testCaseNumber
+            ) ||
+            testCaseNumber < 1
+        ) {
+
+            return res.status(400).json({
+
+                status: false,
+
+                verdict:
+                    "Invalid Test Case",
+
+                error:
+                    "A valid testCase number is required"
+            });
+        }
+
+
+        if (
+            input === undefined ||
+            input === null
+        ) {
+
+            return res.status(400).json({
+
+                status: false,
+
+                verdict:
+                    "Invalid Input",
+
+                error:
+                    "Test case input is required"
+            });
+        }
+
+
+        if (
+            expectedOutput === undefined ||
+            expectedOutput === null
+        ) {
+
+            return res.status(400).json({
+
+                status: false,
+
+                verdict:
+                    "Invalid Expected Output",
+
+                error:
+                    "Expected output is required"
+            });
+        }
+
+
+        // =========================================================
+        // NORMALIZE INPUT
+        // =========================================================
+
+        const stdin =
+            String(input)
+                .replace(/\r\n/g, "\n");
+
+
+        const expected =
+            String(expectedOutput)
+                .replace(/\r\n/g, "\n");
+
+
+        console.log(
+            "Question ID:",
+            questionId
+        );
+
+        console.log(
+            "Language:",
+            language
+        );
+
+        console.log(
+            "Test Case:",
+            testCaseNumber
+        );
+
+        console.log(
+            "Input:",
+            JSON.stringify(stdin)
+        );
+
+        console.log(
+            "Expected Output:",
+            JSON.stringify(expected)
+        );
+
+        console.log(
+            "Code Length:",
+            code.length
+        );
+
+
+        // =========================================================
+        // EXECUTE ONLY THIS TEST CASE
+        // =========================================================
+
+        console.log("");
+        console.log(
+            `🚀 Executing Judge0 for Test Case ${testCaseNumber}`
+        );
+
+
+        const result =
+            await executeJudge0({
+
+                language,
+
+                sourceCode:
+                    String(code),
+
+                stdin
+            });
+
+
+        console.log("");
+        console.log(
+            `📥 Judge0 Response - Test Case ${testCaseNumber}`
+        );
+
+        console.log(
+            JSON.stringify(
+                result,
+                null,
+                2
+            )
+        );
+
+
+        // =========================================================
+        // COMPILATION ERROR
+        // =========================================================
+
+        if (
+            result?.compile_output
+        ) {
+
+            console.log(
+                `❌ Compilation Error - Test Case ${testCaseNumber}`
+            );
+
+
+            return res.json({
+
+                status: true,
+
+                testCase:
+                    testCaseNumber,
+
+                verdict:
+                    "Compilation Error",
+
+                passed: false,
+
+                actualOutput:
+                    "",
+
+                expectedOutput:
+                    expected,
+
+                error:
+                    result.compile_output || "",
+
+                compilationError: {
+
+                    message:
+                        result.compile_output || ""
+                },
+
+                time:
+                    result.time ?? null,
+
+                memory:
+                    result.memory ?? null
+            });
+        }
+
+
+        // =========================================================
+        // RUNTIME ERROR
+        // =========================================================
+
+        if (
+            result?.status?.id >= 7 &&
+            result?.status?.id <= 12
+        ) {
+
+            console.log(
+                `❌ Runtime Error - Test Case ${testCaseNumber}`
+            );
+
+
+            const actualOutput =
+                String(
+                    result.stdout ?? ""
+                )
+                    .replace(/\r\n/g, "\n")
+                    .trim();
+
+
+            const runtimeError =
+                String(
+                    result.stderr ??
+                    result.message ??
+                    ""
+                );
+
+
+            return res.json({
+
+                status: true,
+
+                testCase:
+                    testCaseNumber,
+
+                verdict:
+                    "Runtime Error",
+
+                passed: false,
+
+                actualOutput,
+
+                expectedOutput:
+                    expected,
+
+                error:
+                    runtimeError,
+
+                stderr:
+                    runtimeError,
+
+                time:
+                    result.time ?? null,
+
+                memory:
+                    result.memory ?? null
+            });
+        }
+
+
+        // =========================================================
+        // TIME LIMIT EXCEEDED
+        // =========================================================
+
+        if (
+            result?.status?.id === 5
+        ) {
+
+            console.log(
+                `⏱️ TLE - Test Case ${testCaseNumber}`
+            );
+
+
+            const actualOutput =
+                String(
+                    result.stdout ?? ""
+                )
+                    .replace(/\r\n/g, "\n")
+                    .trim();
+
+
+            return res.json({
+
+                status: true,
+
+                testCase:
+                    testCaseNumber,
+
+                verdict:
+                    "Time Limit Exceeded",
+
+                passed: false,
+
+                actualOutput,
+
+                expectedOutput:
+                    expected,
+
+                error:
+                    "Time Limit Exceeded",
+
+                time:
+                    result.time ?? null,
+
+                memory:
+                    result.memory ?? null
+            });
+        }
+
+
+        // =========================================================
+        // NORMAL OUTPUT
+        // =========================================================
+
+        const actual =
+            String(
+                result.stdout ?? ""
+            )
+                .replace(/\r\n/g, "\n")
+                .trim();
+
+
+        const expectedNormalized =
+            String(expected)
+                .replace(/\r\n/g, "\n")
+                .trim();
+
+
+        console.log("");
+        console.log(
+            `Actual Output - TC ${testCaseNumber}:`,
+            JSON.stringify(actual)
+        );
+
+        console.log(
+            `Expected Output - TC ${testCaseNumber}:`,
+            JSON.stringify(
+                expectedNormalized
+            )
+        );
+
+
+        // =========================================================
+        // COMPARE
+        // =========================================================
+
+        const passed =
+            actual ===
+            expectedNormalized;
+
+
+        console.log(
+            `TC ${testCaseNumber} RESULT:`,
+            passed
+                ? "✅ PASSED"
+                : "❌ FAILED"
+        );
+
+
+        // =========================================================
+        // RESPONSE
+        // =========================================================
+
+        return res.json({
+
+            status: true,
+
+            testCase:
+                testCaseNumber,
+
+            verdict:
+                passed
+                    ? "Accepted"
+                    : "Wrong Answer",
+
+            passed,
+
+            actualOutput:
+                actual,
+
+            expectedOutput:
+                expectedNormalized,
+
+            error:
+                "",
+
+            time:
+                result.time ?? null,
+
+            memory:
+                result.memory ?? null
+        });
+
+
     } catch (error) {
-      console.error(error.response?.data || error.message);
-      res.json({
-        status: false,
-        error: "Something went wrong",
-        details: error.response?.data,
-      });
-    }
-  });
 
+        console.error("");
+        console.error(
+            "========================================"
+        );
+
+        console.error(
+            "❌ /RUN ERROR"
+        );
+
+        console.error(
+            error?.response?.data ||
+            error?.message ||
+            error
+        );
+
+        console.error(
+            "========================================"
+        );
+
+
+        return res.status(500).json({
+
+            status: false,
+
+            verdict:
+                "Execution Error",
+
+            passed: false,
+
+            testCase:
+                req.body?.testCase ?? null,
+
+            actualOutput:
+                "",
+
+            expectedOutput:
+                String(
+                    req.body?.expectedOutput ??
+                    ""
+                ),
+
+            error:
+                error?.response?.data?.message ||
+                error?.message ||
+                "Unable to execute code"
+        });
+    }
+
+});
+app.post("/submit", async (req, res) => {
+
+    try {
+
+        const {
+            questionId,
+            language,
+            code,
+            testCase
+        } = req.body;
+
+
+        console.log("");
+        console.log("========================================");
+        console.log("▶ /SUBMIT - SINGLE HIDDEN TEST CASE");
+        console.log("========================================");
+
+
+        // =========================================================
+        // VALIDATION
+        // =========================================================
+
+        if (!questionId) {
+
+            return res.status(400).json({
+
+                status: false,
+
+                verdict:
+                    "Invalid Question",
+
+                error:
+                    "questionId is required"
+            });
+        }
+
+
+        if (!languages[language]) {
+
+            return res.status(400).json({
+
+                status: false,
+
+                verdict:
+                    "Unsupported Language",
+
+                error:
+                    "Unsupported language"
+            });
+        }
+
+
+        if (
+            typeof code !== "string" ||
+            !code.trim()
+        ) {
+
+            return res.status(400).json({
+
+                status: false,
+
+                verdict:
+                    "Invalid Code",
+
+                error:
+                    "Code is required"
+            });
+        }
+
+
+        const testCaseNumber =
+            Number(testCase);
+
+
+        if (
+            !Number.isInteger(
+                testCaseNumber
+            ) ||
+            testCaseNumber < 1
+        ) {
+
+            return res.status(400).json({
+
+                status: false,
+
+                verdict:
+                    "Invalid Test Case",
+
+                error:
+                    "A valid testCase number is required"
+            });
+        }
+
+
+        // =========================================================
+        // GET QUESTION
+        // =========================================================
+
+        const question =
+            await Question.findById(
+                questionId
+            ).lean();
+
+
+        if (!question) {
+
+            return res.status(404).json({
+
+                status: false,
+
+                verdict:
+                    "Question Not Found",
+
+                error:
+                    "Question not found"
+            });
+        }
+
+
+        // =========================================================
+        // GET HIDDEN TEST CASES
+        // =========================================================
+
+        const hiddenTestCases =
+            question?.coding
+                ?.hiddenTestCases || [];
+
+
+        if (
+            !Array.isArray(
+                hiddenTestCases
+            ) ||
+            hiddenTestCases.length === 0
+        ) {
+
+            return res.status(400).json({
+
+                status: false,
+
+                verdict:
+                    "No Hidden Test Cases",
+
+                error:
+                    "Hidden test cases are not configured"
+            });
+        }
+
+
+        // =========================================================
+        // CHECK TEST CASE NUMBER
+        // =========================================================
+
+        if (
+            testCaseNumber >
+            hiddenTestCases.length
+        ) {
+
+            return res.status(400).json({
+
+                status: false,
+
+                verdict:
+                    "Invalid Test Case",
+
+                error:
+                    `Hidden test case ${testCaseNumber} does not exist`
+            });
+        }
+
+
+        // =========================================================
+        // GET ONLY REQUESTED TEST CASE
+        // =========================================================
+
+        const selectedTestCase =
+            hiddenTestCases[
+                testCaseNumber - 1
+            ];
+
+
+        if (!selectedTestCase) {
+
+            return res.status(400).json({
+
+                status: false,
+
+                verdict:
+                    "Invalid Test Case",
+
+                error:
+                    "Unable to load hidden test case"
+            });
+        }
+
+
+        const stdin =
+            String(
+                selectedTestCase?.input ??
+                selectedTestCase?.testInput ??
+                ""
+            )
+                .replace(/\r\n/g, "\n");
+
+
+        const expected =
+            String(
+                selectedTestCase?.expectedOutput ??
+                selectedTestCase?.output ??
+                ""
+            )
+                .replace(/\r\n/g, "\n");
+
+
+        console.log(
+            "Question ID:",
+            questionId
+        );
+
+        console.log(
+            "Language:",
+            language
+        );
+
+        console.log(
+            "Hidden Test Case:",
+            testCaseNumber
+        );
+
+        /*
+         * Don't print expected output in production.
+         * It is hidden from the student.
+         */
+
+        console.log(
+            "Hidden Input:",
+            JSON.stringify(stdin)
+        );
+
+
+        // =========================================================
+        // EXECUTE ONLY THIS HIDDEN TEST CASE
+        // =========================================================
+
+        console.log("");
+        console.log(
+            `🔐 Executing Hidden Test Case ${testCaseNumber}`
+        );
+
+
+        const result =
+            await executeJudge0({
+
+                language,
+
+                sourceCode:
+                    String(code),
+
+                stdin
+            });
+
+
+        console.log("");
+        console.log(
+            `📥 Judge0 Response - Hidden TC ${testCaseNumber}`
+        );
+
+        console.log(
+            JSON.stringify(
+                result,
+                null,
+                2
+            )
+        );
+
+
+        // =========================================================
+        // COMPILATION ERROR
+        // =========================================================
+
+        if (
+            result?.compile_output
+        ) {
+
+            console.log(
+                `❌ Compilation Error - Hidden TC ${testCaseNumber}`
+            );
+
+
+            return res.json({
+
+                status: true,
+
+                testCase:
+                    testCaseNumber,
+
+                verdict:
+                    "Compilation Error",
+
+                passed: false,
+
+                actualOutput:
+                    "",
+
+                error:
+                    result.compile_output || "",
+
+                compilationError: {
+
+                    message:
+                        result.compile_output || ""
+                },
+
+                time:
+                    result.time ?? null,
+
+                memory:
+                    result.memory ?? null
+            });
+        }
+
+
+        // =========================================================
+        // RUNTIME ERROR
+        // =========================================================
+
+        if (
+            result?.status?.id >= 7 &&
+            result?.status?.id <= 12
+        ) {
+
+            const actualOutput =
+                String(
+                    result.stdout ?? ""
+                )
+                    .replace(/\r\n/g, "\n")
+                    .trim();
+
+
+            const runtimeError =
+                String(
+                    result.stderr ??
+                    result.message ??
+                    ""
+                );
+
+
+            console.log(
+                `❌ Runtime Error - Hidden TC ${testCaseNumber}`
+            );
+
+
+            return res.json({
+
+                status: true,
+
+                testCase:
+                    testCaseNumber,
+
+                verdict:
+                    "Runtime Error",
+
+                passed: false,
+
+                actualOutput,
+
+                error:
+                    runtimeError,
+
+                time:
+                    result.time ?? null,
+
+                memory:
+                    result.memory ?? null
+            });
+        }
+
+
+        // =========================================================
+        // TIME LIMIT EXCEEDED
+        // =========================================================
+
+        if (
+            result?.status?.id === 5
+        ) {
+
+            const actualOutput =
+                String(
+                    result.stdout ?? ""
+                )
+                    .replace(/\r\n/g, "\n")
+                    .trim();
+
+
+            console.log(
+                `⏱️ TLE - Hidden TC ${testCaseNumber}`
+            );
+
+
+            return res.json({
+
+                status: true,
+
+                testCase:
+                    testCaseNumber,
+
+                verdict:
+                    "Time Limit Exceeded",
+
+                passed: false,
+
+                actualOutput,
+
+                error:
+                    "Time Limit Exceeded",
+
+                time:
+                    result.time ?? null,
+
+                memory:
+                    result.memory ?? null
+            });
+        }
+
+
+        // =========================================================
+        // NORMAL OUTPUT
+        // =========================================================
+
+        const actual =
+            String(
+                result.stdout ?? ""
+            )
+                .replace(/\r\n/g, "\n")
+                .trim();
+
+
+        const expectedNormalized =
+            String(expected)
+                .replace(/\r\n/g, "\n")
+                .trim();
+
+
+        console.log(
+            `Hidden TC ${testCaseNumber} actual:`,
+            JSON.stringify(actual)
+        );
+
+
+        // =========================================================
+        // COMPARE
+        // =========================================================
+
+        const passed =
+            actual ===
+            expectedNormalized;
+
+
+        console.log(
+            `Hidden TC ${testCaseNumber}:`,
+            passed
+                ? "✅ PASSED"
+                : "❌ FAILED"
+        );
+
+
+        // =========================================================
+        // IMPORTANT
+        //
+        // DO NOT RETURN expectedOutput
+        // FOR HIDDEN TEST CASES
+        // =========================================================
+
+        return res.json({
+
+            status: true,
+
+            testCase:
+                testCaseNumber,
+
+            verdict:
+                passed
+                    ? "Accepted"
+                    : "Wrong Answer",
+
+            passed,
+
+            actualOutput:
+                actual,
+
+            error:
+                "",
+
+            time:
+                result.time ?? null,
+
+            memory:
+                result.memory ?? null
+        });
+
+
+    } catch (error) {
+
+        console.error("");
+        console.error(
+            "========================================"
+        );
+
+        console.error(
+            "❌ /SUBMIT ERROR"
+        );
+
+        console.error(
+            error?.response?.data ||
+            error?.message ||
+            error
+        );
+
+        console.error(
+            "========================================"
+        );
+
+
+        return res.status(500).json({
+
+            status: false,
+
+            verdict:
+                "Execution Error",
+
+            passed: false,
+
+            testCase:
+                req.body?.testCase ?? null,
+
+            actualOutput:
+                "",
+
+            error:
+                error?.response?.data?.message ||
+                error?.message ||
+                "Unable to submit code"
+        });
+    }
+
+});
   server.listen(PORT, () => {
     console.log(`🚀 Worker ${process.pid} started on port ${PORT}`);
   });

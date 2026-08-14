@@ -135,7 +135,8 @@ router.get('/exam/full/:examName/:category', async (req, res) => {
     const queries = Array.from(chapterMap.values()).map(ch =>
       Question.aggregate([
         { $match: { subjectName: ch.subjectName, chapterName: ch.chapterName } },
-        { $project: { questionText: 1, options: 1, difficultyLevel: 1, companyTags: 1, answer: 1 } },
+        { $project: {questionType: 1,questionText: 1,options: 1,difficultyLevel: 1,companyTags: 1,answer: 1,coding: 1}
+},
         { $sample: { size: ch.limit } }
       ]).then(result => ({
         key: `${ch.subjectName}-${ch.chapterName}`,
@@ -159,11 +160,14 @@ router.get('/exam/full/:examName/:category', async (req, res) => {
         chapterQuestions.forEach(q => {
           questions.push({
             _id: q._id,
+            questionType: q.questionType,
             questionText: q.questionText,
-            options: q.options,
+            options: q.options || [],
             difficultyLevel: q.difficultyLevel,
-            companyTags: q.companyTags,
+            companyTags: q.companyTags || [],
             answer: q.answer ? Buffer.from(q.answer.toString()).toString('base64') : '',
+            coding: q.coding || null,
+            expectedOutput: q.expectedOutput || '',
             userAnswer: ''
           });
         });

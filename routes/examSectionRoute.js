@@ -347,188 +347,1236 @@ router.post('/exam-result-summary', async (req, res) => {
 });
 
 
-// POST /exam/addSection
-router.post('/addSection', async (req, res) => {
-  try {
-    const { examName, emailAddress, fullName, section, status } = req.body;
+// // POST /exam/addSection
+// router.post('/addSection', async (req, res) => {
+//   try {
+//     const { examName, emailAddress, fullName, section, status } = req.body;
 
-    if (!examName || !emailAddress || !fullName || !section || !section.sectionName) {
-      return res.json({ status: false, message: "examName, emailAddress, fullName, sectionName required" });
+//     if (!examName || !emailAddress || !fullName || !section || !section.sectionName) {
+//       return res.json({ status: false, message: "examName, emailAddress, fullName, sectionName required" });
+//     }
+
+//     const questions = Array.isArray(section.questions) ? section.questions : [];
+
+//     // ✅ Pre-compute per-section stats before DB call
+//     const totalAttempted = questions.filter(q => q.userAnswer !== null).length || 0;
+//     const totalCorrect = questions.filter(q => q.status === "correct").length || 0;
+//     const totalWrong = questions.filter(q => q.status === "wrong").length || 0;
+//     const marksObtained = section.noOfquestions > 0 
+//       ? Number(((totalCorrect / section.noOfquestions) * section.totalMarks).toFixed(2)) 
+//       : 0;
+
+//     section.attempted = totalAttempted;
+//     section.correct = totalCorrect;
+//     section.wrong = totalWrong;
+//     section.marksObtained = marksObtained;
+//     section.timeTaken = section.timeTaken || '00:00';
+
+//     // ✅ Try update existing section atomically
+//     let record = await ExamSection.findOneAndUpdate(
+//       {
+//         examName,
+//         emailAddress,
+//         fullName,
+//         "sections.sectionName": section.sectionName
+//       },
+//       {
+//         $set: {
+//           "sections.$.questions": section.questions,
+//           "sections.$.attempted": section.attempted,
+//           "sections.$.correct": section.correct,
+//           "sections.$.wrong": section.wrong,
+//           "sections.$.marksObtained": section.marksObtained,
+//           "sections.$.timeTaken": section.timeTaken,
+//           "sections.$.totalMarks": section.totalMarks,
+//           "sections.$.noOfquestions": section.noOfquestions,
+//           "sections.$.totalDuration": section.totalDuration
+//         }
+//       },
+//       { new: true }
+//     );
+
+//     if (!record) {
+//       // ✅ If no matching section → push as new
+//       record = await ExamSection.findOneAndUpdate(
+//         { examName, emailAddress, fullName },
+//         {
+//           $push: { sections: section },
+//           $setOnInsert: { status: 'in-progress', startedAt: new Date() }
+//         },
+//         { new: true, upsert: true }
+//       );
+//     }
+
+//     // ✅ Recompute totals (still need to aggregate at app level)
+//     let totalMarksObtained = 0, totalMarks = 0, totalCorrectAll = 0, totalWrongAll = 0, totalQuestions = 0, totalTimeTaken = '00:00';
+
+//     record.sections.forEach(sec => {
+//       totalMarksObtained += Number(sec.marksObtained || 0);
+//       totalMarks += Number(sec.totalMarks || 0);
+//       totalCorrectAll += Number(sec.correct || 0);
+//       totalWrongAll += Number(sec.wrong || 0);
+//       totalQuestions += Number(sec.noOfquestions || 0);
+//       totalTimeTaken = addTimes(totalTimeTaken, sec.timeTaken || '00:00');
+//     });
+
+//     await ExamSection.updateOne(
+//       { _id: record._id },
+//       {
+//         $set: {
+//           totalMarksObtained,
+//           totalMarks,
+//           totalCorrect: totalCorrectAll,
+//           totalWrong: totalWrongAll,
+//           totalQuestions,
+//           totalTimeTaken,
+//           ...(status && {
+//             status,
+//             completedAt: status === "completed" ? new Date() : undefined
+//           })
+//         }
+//       }
+//     );
+
+//     res.json({ status: true, message: "Section saved successfully", data: record });
+//   } catch (error) {
+//     console.error("Error in /addSection:", error);
+//     res.status(500).json({ status: false, message: "Something went wrong" });
+//   }
+// });
+
+// router.post('/cheated-sections', async (req, res) => {
+//   try {
+//     const { examName, emailAddress, fullName, sections } = req.body;
+
+//     if (!examName || !emailAddress || !fullName || !Array.isArray(sections)) {
+//       return res.json({
+//         status: false,
+//         message: "examName, emailAddress, fullName, sections (array) required"
+//       });
+//     }
+
+//     let record = await ExamSection.findOne({ examName, emailAddress, fullName });
+
+//     if (!record) {
+//       // Create new record if not exists
+//       record = new ExamSection({
+//         examName,
+//         emailAddress,
+//         fullName,
+//         sections: [],
+//         status: "cheated", // 🚨 FORCE CHEATED
+//         startedAt: new Date()
+//       });
+//     }
+
+//     for (let section of sections) {
+//       if (!section.sectionName) continue;
+
+//       const questions = Array.isArray(section.questions) ? section.questions : [];
+
+//       // ✅ clear all answers when cheated
+//       section.questions = questions.map(q => ({
+//         ...q,
+//         userAnswer: "",
+//         status: "skipped"
+//       }));
+
+//       // ✅ Ensure safe defaults for required fields
+//       const noOfquestions = Number(section.noOfquestions) || 0;
+//       const totalMarks = Number(section.totalMarks) || 0;
+
+//       // ✅ Per-section stats
+//       section.noOfquestions = noOfquestions;
+//       section.totalMarks = totalMarks;
+//       section.attempted = 0; // cheating → 0 attempt
+//       section.correct = 0;
+//       section.wrong = 0;
+//       section.marksObtained = 0;
+//       section.timeTaken = "00:00";
+
+//       // ✅ Update existing section or push new
+//       const index = record.sections.findIndex(sec => sec.sectionName === section.sectionName);
+//       if (index >= 0) {
+//         record.sections[index] = { ...record.sections[index]._doc, ...section };
+//       } else {
+//         record.sections.push(section);
+//       }
+//     }
+
+//     // ✅ Recompute overall stats but force 0
+//     record.totalMarksObtained = 0;
+//     record.totalMarks = record.sections.reduce((sum, s) => sum + (s.totalMarks || 0), 0);
+//     record.totalCorrect = 0;
+//     record.totalWrong = 0;
+//     record.totalQuestions = record.sections.reduce((sum, s) => sum + (s.noOfquestions || 0), 0);
+//     record.totalTimeTaken = "00:00";
+
+//     // 🚨 FORCE STATUS TO CHEATED
+//     record.status = "cheated";
+//     record.completedAt = new Date();
+
+//     await record.save();
+
+//     res.json({
+//       status: true,
+//       message: "Sections saved successfully (cheated)",
+//       data: record
+//     });
+//   } catch (error) {
+//     console.error("Error in /cheated-sections:", error);
+//     res.json({ status: false, message: "Something went wrong" });
+//   }
+// });
+
+// ============================================================
+// SAVE / VERIFY EXAM SECTION
+// POST /exam-section/addSection
+// ============================================================
+
+// ============================================================
+// SAVE + VERIFY EXAM SECTION
+// POST /exam-section/addSection
+// ============================================================
+
+// =====================================================
+// NORMALIZE QUESTION TYPE
+// =====================================================
+
+function normalizeQuestionType(type) {
+    if (type === null || type === undefined) {
+        return "";
     }
 
-    const questions = Array.isArray(section.questions) ? section.questions : [];
+    return String(type)
+        .trim()
+        .toUpperCase()
+        .replace(/[\s-]+/g, "_");
+}
 
-    // ✅ Pre-compute per-section stats before DB call
-    const totalAttempted = questions.filter(q => q.userAnswer !== null).length || 0;
-    const totalCorrect = questions.filter(q => q.status === "correct").length || 0;
-    const totalWrong = questions.filter(q => q.status === "wrong").length || 0;
-    const marksObtained = section.noOfquestions > 0 
-      ? Number(((totalCorrect / section.noOfquestions) * section.totalMarks).toFixed(2)) 
-      : 0;
 
-    section.attempted = totalAttempted;
-    section.correct = totalCorrect;
-    section.wrong = totalWrong;
-    section.marksObtained = marksObtained;
-    section.timeTaken = section.timeTaken || '00:00';
+// ============================================================
+// NORMALIZE ANSWER
+// ============================================================
 
-    // ✅ Try update existing section atomically
-    let record = await ExamSection.findOneAndUpdate(
-      {
-        examName,
-        emailAddress,
-        fullName,
-        "sections.sectionName": section.sectionName
-      },
-      {
-        $set: {
-          "sections.$.questions": section.questions,
-          "sections.$.attempted": section.attempted,
-          "sections.$.correct": section.correct,
-          "sections.$.wrong": section.wrong,
-          "sections.$.marksObtained": section.marksObtained,
-          "sections.$.timeTaken": section.timeTaken,
-          "sections.$.totalMarks": section.totalMarks,
-          "sections.$.noOfquestions": section.noOfquestions,
-          "sections.$.totalDuration": section.totalDuration
+function normalizeAnswer(value) {
+    return String(value ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+}
+
+
+// ============================================================
+// CHECK SINGLE CHOICE
+// ============================================================
+
+function checkSingleChoiceAnswer(
+    question,
+    userAnswer
+) {
+
+    const normalizedUserAnswer =
+        normalizeAnswer(userAnswer);
+
+
+    // Empty answer = skipped
+    if (!normalizedUserAnswer) {
+
+        return {
+            correct: false,
+            attempted: false,
+            obtainedMarks: 0,
+            userAnswer: userAnswer ?? "",
+            correctAnswer: null
+        };
+    }
+
+
+    // ========================================================
+    // FIND CORRECT ANSWER
+    // ========================================================
+
+    let correctAnswer = "";
+
+
+    // Preferred: correctAnswers
+    if (
+        Array.isArray(question.correctAnswers) &&
+        question.correctAnswers.length > 0
+    ) {
+
+        correctAnswer =
+            question.correctAnswers[0];
+
+    }
+
+    // Fallback: acceptedAnswers
+    else if (
+        Array.isArray(question.acceptedAnswers) &&
+        question.acceptedAnswers.length > 0
+    ) {
+
+        correctAnswer =
+            question.acceptedAnswers[0];
+
+    }
+
+    // Fallback: answer
+    else if (
+        question.answer !== undefined &&
+        question.answer !== null &&
+        String(question.answer).trim() !== ""
+    ) {
+
+        correctAnswer =
+            question.answer;
+    }
+
+
+    const normalizedCorrectAnswer =
+        normalizeAnswer(correctAnswer);
+
+
+    const correct =
+        normalizedUserAnswer !== "" &&
+        normalizedCorrectAnswer !== "" &&
+        normalizedUserAnswer ===
+            normalizedCorrectAnswer;
+
+
+    const marks =
+        Number(question.marks || 1);
+
+
+    return {
+
+        correct,
+
+        attempted: true,
+
+        userAnswer:
+            userAnswer,
+
+        correctAnswer:
+            correctAnswer,
+
+        normalizedUserAnswer:
+            normalizedUserAnswer,
+
+        normalizedCorrectAnswer:
+            normalizedCorrectAnswer,
+
+        obtainedMarks:
+            correct
+                ? marks
+                : 0
+    };
+}
+
+
+// ============================================================
+// CHECK FILL IN THE BLANK
+// ============================================================
+
+function checkFillBlankAnswer(
+    question,
+    userAnswer
+) {
+
+    const answers =
+        Array.isArray(userAnswer)
+            ? userAnswer
+            : [];
+
+
+    // ========================================================
+    // DATABASE ACCEPTED ANSWERS
+    // ========================================================
+
+    let acceptedAnswers = [];
+
+
+    if (
+        Array.isArray(question.acceptedAnswers) &&
+        question.acceptedAnswers.length > 0
+    ) {
+
+        acceptedAnswers =
+            question.acceptedAnswers;
+
+    }
+
+    else if (
+        Array.isArray(question.correctAnswers)
+    ) {
+
+        acceptedAnswers =
+            question.correctAnswers;
+    }
+
+
+    // ========================================================
+    // FIND NUMBER OF BLANKS
+    // ========================================================
+
+    const questionText =
+        String(question.questionText || "");
+
+
+    const blankMatches =
+        questionText.match(
+            /\[\[BLANK_\d+\]\]/g
+        ) || [];
+
+
+    const blankCount =
+        blankMatches.length;
+
+
+    const blankResults = [];
+
+    let attempted = false;
+
+    let allCorrect = true;
+
+
+    // ========================================================
+    // CHECK EACH BLANK
+    // ========================================================
+
+    for (
+        let i = 0;
+        i < blankCount;
+        i++
+    ) {
+
+        const blank =
+            `BLANK_${i + 1}`;
+
+
+        const rawUserAnswer =
+            answers[i] ?? "";
+
+
+        const normalizedUserAnswer =
+            normalizeAnswer(
+                rawUserAnswer
+            );
+
+
+        const rawAcceptedAnswer =
+            acceptedAnswers[i] ?? "";
+
+
+        const normalizedAcceptedAnswer =
+            normalizeAnswer(
+                rawAcceptedAnswer
+            );
+
+
+        // Any non-empty blank means attempted
+        if (
+            normalizedUserAnswer !== ""
+        ) {
+
+            attempted = true;
         }
-      },
-      { new: true }
+
+
+        const correct =
+            normalizedUserAnswer !== "" &&
+            normalizedAcceptedAnswer !== "" &&
+            normalizedUserAnswer ===
+                normalizedAcceptedAnswer;
+
+
+        if (!correct) {
+
+            allCorrect = false;
+        }
+
+
+        blankResults.push({
+
+            blank,
+
+            userAnswer:
+                rawUserAnswer,
+
+            normalizedUserAnswer,
+
+            acceptedAnswers: [
+                rawAcceptedAnswer
+            ],
+
+            normalizedAcceptedAnswers: [
+                normalizedAcceptedAnswer
+            ],
+
+            correct
+
+        });
+    }
+
+
+    const marks =
+        Number(question.marks || 1);
+
+
+    return {
+
+        correct:
+            allCorrect,
+
+        attempted,
+
+        answers:
+            answers,
+
+        blankResults,
+
+        obtainedMarks:
+            allCorrect
+                ? marks
+                : 0
+
+    };
+}
+// ============================================================
+// EVALUATE QUESTION
+// ============================================================
+
+function evaluateQuestion(
+    question,
+    userAnswer
+) {
+
+    const questionType =
+        normalizeQuestionType(
+            question.questionType
+        );
+
+
+    // ========================================================
+    // FILL BLANK
+    // ========================================================
+
+    if (
+        questionType === "FILL_BLANK"
+    ) {
+
+        const result =
+            checkFillBlankAnswer(
+                question,
+                userAnswer
+            );
+
+
+        return {
+
+            questionType,
+
+            ...result
+
+        };
+    }
+
+
+    // ========================================================
+    // SINGLE CHOICE
+    // ========================================================
+
+    if (
+        questionType === "SINGLE_CHOICE" ||
+        questionType === "SINGLE_CHOICE_QUESTION" ||
+        questionType === "MCQ"
+    ) {
+
+        const result =
+            checkSingleChoiceAnswer(
+                question,
+                userAnswer
+            );
+
+
+        return {
+
+            questionType,
+
+            ...result
+
+        };
+    }
+
+
+    // ========================================================
+    // UNKNOWN QUESTION TYPE
+    // ========================================================
+
+    console.warn(
+        "UNSUPPORTED QUESTION TYPE:",
+        question.questionType
     );
 
-    if (!record) {
-      // ✅ If no matching section → push as new
-      record = await ExamSection.findOneAndUpdate(
-        { examName, emailAddress, fullName },
-        {
-          $push: { sections: section },
-          $setOnInsert: { status: 'in-progress', startedAt: new Date() }
-        },
-        { new: true, upsert: true }
-      );
-    }
 
-    // ✅ Recompute totals (still need to aggregate at app level)
-    let totalMarksObtained = 0, totalMarks = 0, totalCorrectAll = 0, totalWrongAll = 0, totalQuestions = 0, totalTimeTaken = '00:00';
+    return {
 
-    record.sections.forEach(sec => {
-      totalMarksObtained += Number(sec.marksObtained || 0);
-      totalMarks += Number(sec.totalMarks || 0);
-      totalCorrectAll += Number(sec.correct || 0);
-      totalWrongAll += Number(sec.wrong || 0);
-      totalQuestions += Number(sec.noOfquestions || 0);
-      totalTimeTaken = addTimes(totalTimeTaken, sec.timeTaken || '00:00');
-    });
+        questionType,
 
-    await ExamSection.updateOne(
-      { _id: record._id },
-      {
-        $set: {
-          totalMarksObtained,
-          totalMarks,
-          totalCorrect: totalCorrectAll,
-          totalWrong: totalWrongAll,
-          totalQuestions,
-          totalTimeTaken,
-          ...(status && {
-            status,
-            completedAt: status === "completed" ? new Date() : undefined
-          })
+        correct: false,
+
+        attempted:
+            Array.isArray(userAnswer)
+                ? userAnswer.length > 0
+                : normalizeAnswer(userAnswer) !== "",
+
+        obtainedMarks: 0
+
+    };
+}
+router.post("/addSection", async (req, res) => {
+    try {
+
+        const {
+            examName,
+            emailAddress,
+            fullName,
+            section,
+            status
+        } = req.body;
+
+
+        // ============================================================
+        // VALIDATION
+        // ============================================================
+
+        if (
+            !examName ||
+            !emailAddress ||
+            !fullName ||
+            !section ||
+            !section.sectionName
+        ) {
+            return res.status(400).json({
+                status: false,
+                message:
+                    "examName, emailAddress, fullName and section are required"
+            });
         }
-      }
-    );
 
-    res.json({ status: true, message: "Section saved successfully", data: record });
-  } catch (error) {
-    console.error("Error in /addSection:", error);
-    res.status(500).json({ status: false, message: "Something went wrong" });
-  }
+
+        // ============================================================
+        // QUESTIONS FROM FRONTEND
+        // ============================================================
+
+        const questions =
+            Array.isArray(section.questions)
+                ? section.questions
+                : [];
+
+
+        const processedQuestions = [];
+
+
+        // ============================================================
+        // PROCESS EVERY QUESTION
+        // ============================================================
+
+        for (const attemptedQuestion of questions) {
+
+            const questionId =
+                attemptedQuestion.questionId;
+
+
+            // --------------------------------------------------------
+            // GET ORIGINAL QUESTION FROM DATABASE
+            // --------------------------------------------------------
+
+            const originalQuestion =
+                await Question.findById(questionId);
+
+
+            if (!originalQuestion) {
+
+                console.log(
+                    "QUESTION NOT FOUND:",
+                    questionId
+                );
+
+                continue;
+            }
+
+
+            // --------------------------------------------------------
+            // NORMALIZE QUESTION TYPE
+            // --------------------------------------------------------
+
+            const questionType =
+                normalizeQuestionType(
+                    originalQuestion.questionType
+                );
+
+
+            // --------------------------------------------------------
+            // USER ANSWER FROM FRONTEND
+            //
+            // SINGLE_CHOICE:
+            // "Option B"
+            //
+            // FILL_BLANK:
+            // ["the", "the", "during"]
+            // --------------------------------------------------------
+
+            const userAnswer =
+                attemptedQuestion.userAnswer;
+
+
+            console.log(
+                "=============================================="
+            );
+
+            console.log(
+                "QUESTION ID:",
+                questionId
+            );
+
+            console.log(
+                "QUESTION TYPE:",
+                questionType
+            );
+
+            console.log(
+                "FRONTEND USER ANSWER:",
+                JSON.stringify(
+                    userAnswer
+                )
+            );
+
+
+            // --------------------------------------------------------
+            // VERIFY ANSWER USING DATABASE
+            //
+            // evaluateQuestion() handles:
+            //
+            // SINGLE_CHOICE
+            // FILL_BLANK
+            // --------------------------------------------------------
+
+            const result =
+                evaluateQuestion(
+                    originalQuestion,
+                    userAnswer
+                );
+
+
+            console.log(
+                "QUESTION RESULT:",
+                JSON.stringify(
+                    result,
+                    null,
+                    2
+                )
+            );
+
+
+            // ========================================================
+            // DETERMINE QUESTION STATUS
+            // ========================================================
+
+            let questionStatus = "skipped";
+
+
+            if (result.correct) {
+
+                questionStatus = "correct";
+
+            }
+            else if (result.attempted) {
+
+                questionStatus = "wrong";
+
+            }
+            else {
+
+                questionStatus = "skipped";
+            }
+
+
+            // ========================================================
+            // PROCESSED QUESTION
+            // ========================================================
+
+            const processedQuestion = {
+
+                questionId:
+                    questionId,
+
+                userAnswer:
+                    userAnswer,
+
+                questionType:
+                    questionType,
+
+                status:
+                    questionStatus,
+
+                obtainedMarks:
+                    Number(
+                        result.obtainedMarks || 0
+                    )
+            };
+
+
+            // --------------------------------------------------------
+            // FILL BLANK EXTRA RESULT
+            // --------------------------------------------------------
+
+            if (
+                questionType === "FILL_BLANK"
+            ) {
+
+                processedQuestion.blankResults =
+                    result.blankResults || [];
+            }
+
+
+            // --------------------------------------------------------
+            // SINGLE CHOICE EXTRA RESULT
+            // --------------------------------------------------------
+
+            if (
+                questionType === "SINGLE_CHOICE" ||
+                questionType === "SINGLE_CHOICE_QUESTION" ||
+                questionType === "MCQ"
+            ) {
+
+                processedQuestion.correctAnswer =
+                    result.correctAnswer;
+            }
+
+
+            // --------------------------------------------------------
+            // ADD TO SECTION
+            // --------------------------------------------------------
+
+            processedQuestions.push(
+                processedQuestion
+            );
+        }
+
+
+        // ============================================================
+        // SECTION STATISTICS
+        // ============================================================
+
+        const attempted =
+            processedQuestions.filter(
+                question =>
+                    question.status !== "skipped"
+            ).length;
+
+
+        const correct =
+            processedQuestions.filter(
+                question =>
+                    question.status === "correct"
+            ).length;
+
+
+        const wrong =
+            processedQuestions.filter(
+                question =>
+                    question.status === "wrong"
+            ).length;
+
+
+        const skipped =
+            processedQuestions.filter(
+                question =>
+                    question.status === "skipped"
+            ).length;
+
+
+        const marksObtained =
+            processedQuestions.reduce(
+                (
+                    total,
+                    question
+                ) => {
+
+                    return (
+                        total +
+                        Number(
+                            question.obtainedMarks || 0
+                        )
+                    );
+
+                },
+                0
+            );
+
+
+        // ============================================================
+        // SECTION DATA
+        // ============================================================
+
+        const sectionData = {
+
+            sectionName:
+                section.sectionName,
+
+            totalDuration:
+                Number(
+                    section.totalDuration || 0
+                ),
+
+            totalMarks:
+                Number(
+                    section.totalMarks || 0
+                ),
+
+            noOfquestions:
+                Number(
+                    section.noOfquestions ||
+                    processedQuestions.length
+                ),
+
+            questions:
+                processedQuestions,
+
+            attempted,
+
+            correct,
+
+            wrong,
+
+            skipped,
+
+            marksObtained,
+
+            timeTaken:
+                section.timeTaken || "00:00"
+        };
+
+
+        // ============================================================
+        // FIND EXISTING EXAM SECTION DOCUMENT
+        // ============================================================
+
+        let examSection =
+            await ExamSection.findOne({
+                emailAddress,
+                examName
+            });
+
+
+        // ============================================================
+        // CREATE NEW EXAM SECTION DOCUMENT
+        // ============================================================
+
+        if (!examSection) {
+
+            examSection =
+                new ExamSection({
+
+                    emailAddress,
+
+                    fullName,
+
+                    examName,
+
+                    sections: [
+                        sectionData
+                    ],
+
+                    status:
+                        "in-progress",
+
+                    totalAttempted:
+                        attempted,
+
+                    totalCorrect:
+                        correct,
+
+                    totalWrong:
+                        wrong,
+
+                    totalMarksObtained:
+                        marksObtained,
+
+                    totalTimeTaken:
+                        section.timeTaken ||
+                        "00:00"
+                });
+        }
+
+
+        // ============================================================
+        // UPDATE EXISTING EXAM SECTION DOCUMENT
+        // ============================================================
+
+        else {
+
+            const existingIndex =
+                examSection.sections.findIndex(
+                    existingSection =>
+                        existingSection.sectionName ===
+                        section.sectionName
+                );
+
+
+            // --------------------------------------------------------
+            // UPDATE EXISTING SECTION
+            // --------------------------------------------------------
+
+            if (
+                existingIndex !== -1
+            ) {
+
+                examSection.sections[
+                    existingIndex
+                ] = sectionData;
+
+            }
+
+
+            // --------------------------------------------------------
+            // ADD NEW SECTION
+            // --------------------------------------------------------
+
+            else {
+
+                examSection.sections.push(
+                    sectionData
+                );
+            }
+
+
+            // ========================================================
+            // RECALCULATE TOTALS
+            // ========================================================
+
+            examSection.totalAttempted =
+                examSection.sections.reduce(
+                    (
+                        total,
+                        currentSection
+                    ) =>
+                        total +
+                        Number(
+                            currentSection.attempted ||
+                            0
+                        ),
+                    0
+                );
+
+
+            examSection.totalCorrect =
+                examSection.sections.reduce(
+                    (
+                        total,
+                        currentSection
+                    ) =>
+                        total +
+                        Number(
+                            currentSection.correct ||
+                            0
+                        ),
+                    0
+                );
+
+
+            examSection.totalWrong =
+                examSection.sections.reduce(
+                    (
+                        total,
+                        currentSection
+                    ) =>
+                        total +
+                        Number(
+                            currentSection.wrong ||
+                            0
+                        ),
+                    0
+                );
+
+
+            examSection.totalMarksObtained =
+                examSection.sections.reduce(
+                    (
+                        total,
+                        currentSection
+                    ) =>
+                        total +
+                        Number(
+                            currentSection.marksObtained ||
+                            0
+                        ),
+                    0
+                );
+
+
+            examSection.totalTimeTaken =
+                examSection.sections
+                    .map(
+                        currentSection =>
+                            currentSection.timeTaken ||
+                            "00:00"
+                    )
+                    .join(" + ");
+        }
+
+
+        // ============================================================
+        // EXAM COMPLETION
+        //
+        // Frontend sends:
+        //
+        // status: "completed"
+        //
+        // for the last section.
+        // ============================================================
+
+        const normalizedStatus =
+            String(status || "")
+                .trim()
+                .toLowerCase();
+
+
+        if (
+            normalizedStatus === "completed"
+        ) {
+
+            examSection.status =
+                "completed";
+
+
+            examSection.completedAt =
+                new Date();
+
+
+            console.log(
+                "=============================================="
+            );
+
+            console.log(
+                "EXAM COMPLETED"
+            );
+
+            console.log(
+                "Exam Name:",
+                examName
+            );
+
+            console.log(
+                "Student:",
+                emailAddress
+            );
+
+            console.log(
+                "Status:",
+                examSection.status
+            );
+
+            console.log(
+                "Completed At:",
+                examSection.completedAt
+            );
+
+            console.log(
+                "=============================================="
+            );
+        }
+
+        else {
+
+            examSection.status =
+                "in-progress";
+        }
+
+
+        // ============================================================
+        // SAVE TO DATABASE
+        // ============================================================
+
+        await examSection.save();
+
+
+        console.log(
+            "SECTION SAVED SUCCESSFULLY"
+        );
+
+
+        console.log(
+            "FINAL EXAM STATUS:",
+            examSection.status
+        );
+
+
+        // ============================================================
+        // RESPONSE
+        // ============================================================
+
+        return res.status(200).json({
+
+            status: true,
+
+            message:
+                examSection.status === "completed"
+                    ? "Exam completed and section saved successfully"
+                    : "Section saved and answers verified successfully",
+
+            examCompleted:
+                examSection.status === "completed",
+
+            data: {
+
+                section:
+                    sectionData,
+
+                totalAttempted:
+                    examSection.totalAttempted,
+
+                totalCorrect:
+                    examSection.totalCorrect,
+
+                totalWrong:
+                    examSection.totalWrong,
+
+                totalMarksObtained:
+                    examSection.totalMarksObtained,
+
+                examStatus:
+                    examSection.status,
+
+                completedAt:
+                    examSection.completedAt || null
+            }
+        });
+
+
+    }
+    catch (error) {
+
+        console.error(
+            "ADD SECTION ERROR:",
+            error
+        );
+
+
+        return res.status(500).json({
+
+            status: false,
+
+            message:
+                "Failed to save section",
+
+            error:
+                error.message
+        });
+    }
 });
-
-router.post('/cheated-sections', async (req, res) => {
-  try {
-    const { examName, emailAddress, fullName, sections } = req.body;
-
-    if (!examName || !emailAddress || !fullName || !Array.isArray(sections)) {
-      return res.json({
-        status: false,
-        message: "examName, emailAddress, fullName, sections (array) required"
-      });
-    }
-
-    let record = await ExamSection.findOne({ examName, emailAddress, fullName });
-
-    if (!record) {
-      // Create new record if not exists
-      record = new ExamSection({
-        examName,
-        emailAddress,
-        fullName,
-        sections: [],
-        status: "cheated", // 🚨 FORCE CHEATED
-        startedAt: new Date()
-      });
-    }
-
-    for (let section of sections) {
-      if (!section.sectionName) continue;
-
-      const questions = Array.isArray(section.questions) ? section.questions : [];
-
-      // ✅ clear all answers when cheated
-      section.questions = questions.map(q => ({
-        ...q,
-        userAnswer: "",
-        status: "skipped"
-      }));
-
-      // ✅ Ensure safe defaults for required fields
-      const noOfquestions = Number(section.noOfquestions) || 0;
-      const totalMarks = Number(section.totalMarks) || 0;
-
-      // ✅ Per-section stats
-      section.noOfquestions = noOfquestions;
-      section.totalMarks = totalMarks;
-      section.attempted = 0; // cheating → 0 attempt
-      section.correct = 0;
-      section.wrong = 0;
-      section.marksObtained = 0;
-      section.timeTaken = "00:00";
-
-      // ✅ Update existing section or push new
-      const index = record.sections.findIndex(sec => sec.sectionName === section.sectionName);
-      if (index >= 0) {
-        record.sections[index] = { ...record.sections[index]._doc, ...section };
-      } else {
-        record.sections.push(section);
-      }
-    }
-
-    // ✅ Recompute overall stats but force 0
-    record.totalMarksObtained = 0;
-    record.totalMarks = record.sections.reduce((sum, s) => sum + (s.totalMarks || 0), 0);
-    record.totalCorrect = 0;
-    record.totalWrong = 0;
-    record.totalQuestions = record.sections.reduce((sum, s) => sum + (s.noOfquestions || 0), 0);
-    record.totalTimeTaken = "00:00";
-
-    // 🚨 FORCE STATUS TO CHEATED
-    record.status = "cheated";
-    record.completedAt = new Date();
-
-    await record.save();
-
-    res.json({
-      status: true,
-      message: "Sections saved successfully (cheated)",
-      data: record
-    });
-  } catch (error) {
-    console.error("Error in /cheated-sections:", error);
-    res.json({ status: false, message: "Something went wrong" });
-  }
-});
-
 
 
 
