@@ -2,38 +2,94 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const Resource = require('../models/Resource');
 
+const uploadDir = path.join(__dirname, '../uploads/resources');
+
+// Create folder automatically if it doesn't exist
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+console.log('Resource upload directory:', uploadDir);
+
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/resources/'); // Make sure this folder exists
-  },
-  filename: function (req, file, cb) {
-    const uniqueName = Date.now() + '-' + file.originalname;
-    cb(null, uniqueName);
-  }
+    destination: function (req, file, cb) {
+        cb(null, uploadDir);
+    },
+
+    filename: function (req, file, cb) {
+        const uniqueName =
+            Date.now() +
+            '-' +
+            file.originalname.replace(/\s+/g, '-');
+
+        cb(null, uniqueName);
+    }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({
+    storage: storage,
+    limits: {
+        fileSize: 50 * 1024 * 1024 // 10 MB
+    },
+    fileFilter: function (req, file, cb) {
+
+        if (file.mimetype !== 'application/pdf') {
+            return cb(new Error('Only PDF files are allowed'));
+        }
+
+        cb(null, true);
+    }
+});
 
 router.post('/', upload.single('file'), async (req, res) => {
-  try {
-    const { courseName, resourceName } = req.body;
-    const fileLocation = req.file ? req.file.filename : null;
 
-    if (!fileLocation) {
-      return res.json({ status: false, message: 'File is required' });
-    }
+    try {
 
-    const resource = new Resource({ courseName, resourceName, fileLocation });
-    await resource.save();
-    return res.json({ status: true, message: 'Resource created successfully' });
-  } catch (err) {
-    if (err.code === 11000) {
-      return res.json({ status: false, message: 'Resource already exists for this course' });
+        console.log('================ RESOURCE UPLOAD ================');
+        console.log('BODY:', req.body);
+        console.log('FILE:', req.file);
+
+        const { courseName, resourceName } = req.body;
+
+        if (!req.file) {
+            return res.status(400).json({
+                status: false,
+                message: 'File is required'
+            });
+        }
+
+        const resource = new Resource({
+            courseName,
+            resourceName,
+            fileLocation: req.file.filename
+        });
+
+        await resource.save();
+
+        console.log('Resource saved successfully');
+        console.log('Filename:', req.file.filename);
+
+        return res.json({
+            status: true,
+            message: 'Resource created successfully'
+        });
+
+    } catch (err) {
+        console.error('RESOURCE UPLOAD ERROR:', err);
+        if (err.code === 11000) {
+            return res.json({
+                status: false,
+                message: 'Resource already exists for this course'
+            });
+        }
+        return res.status(500).json({
+            status: false,
+            message: err.message || 'Failed to create resource'
+        });
     }
-    return res.json({ status: false, message: 'Failed to create resource' });
-  }
 });
 
 // UPDATE Resource with optional file upload
