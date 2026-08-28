@@ -1,5 +1,10 @@
 const mongoose = require("mongoose");
 
+
+// =========================================================
+// LANGUAGE CONFIGURATION
+// =========================================================
+
 const languageConfigurationSchema = new mongoose.Schema(
     {
         language: {
@@ -13,11 +18,12 @@ const languageConfigurationSchema = new mongoose.Schema(
             ],
             required: true
         },
+
         starterCode: {
             type: String,
             default: ""
         },
-        
+
         driverCode: {
             type: String,
             default: ""
@@ -77,12 +83,6 @@ const hiddenTestCaseSchema = new mongoose.Schema(
         explanation: {
             type: String,
             default: ""
-        },
-
-        weight: {
-            type: Number,
-            default: 1,
-            min: 1
         }
     }
 );
@@ -172,28 +172,50 @@ const questionSchema = new mongoose.Schema(
 
 
         // =====================================================
+        // MARKS
+        // =====================================================
+
+        // IMPORTANT:
+        //
+        // Every question owns its marks.
+        //
+        // Example:
+        //
+        // MCQ       -> 1
+        // MCQ       -> 2
+        // Fill      -> 5
+        // Coding    -> 20
+        //
+        // Backend NEVER calculates:
+        //
+        // totalMarks / numberOfQuestions
+        //
+        // anymore.
+
+        marks: {
+            type: Number,
+            required: true,
+            default: 1,
+            min: 0
+        },
+
+
+        // =====================================================
         // EXISTING FIELDS
-        // DO NOT CHANGE THESE NAMES
         // =====================================================
 
         subjectName: {
             type: String,
-
             required: true,
-
             trim: true,
-
             index: true
         },
 
 
         chapterName: {
             type: String,
-
             required: true,
-
             trim: true,
-
             index: true
         },
 
@@ -219,72 +241,52 @@ const questionSchema = new mongoose.Schema(
 
         companyTags: {
             type: [String],
-
             default: []
         },
 
 
         // =====================================================
-        // ALGORITHM / TOPIC TAGS
+        // TOPIC TAGS
         // =====================================================
 
         topicTags: {
             type: [String],
-
             default: []
         },
 
 
         // =====================================================
         // QUESTION TEXT
-        //
-        // Existing field retained
         // =====================================================
 
         questionText: {
             type: String,
-
             required: true
         },
 
 
         // =====================================================
-        // MCQ OPTIONS
-        //
-        // Existing format retained:
-        //
-        // {
-        //     A: "Option A",
-        //     B: "Option B",
-        //     C: "Option C",
-        //     D: "Option D"
-        // }
-        //
+        // OPTIONS
         // =====================================================
 
         options: {
             type: Object,
-
             default: {}
         },
 
 
         // =====================================================
-        // ANSWER
+        // SINGLE ANSWER
         //
-        // Existing field retained for backward compatibility
+        // Backward compatible.
         //
-        // Single:
+        // Example:
+        //
         // "A"
-        //
-        // Fill:
-        // "Paris"
-        //
         // =====================================================
 
         answer: {
             type: String,
-
             default: ""
         },
 
@@ -295,23 +297,26 @@ const questionSchema = new mongoose.Schema(
         // Example:
         //
         // ["A", "C"]
-        //
         // =====================================================
 
         correctAnswers: {
             type: [String],
-
             default: []
         },
 
 
         // =====================================================
-        // FILL BLANK ACCEPTED ANSWERS
+        // FILL BLANK
         //
         // Example:
         //
-        // ["Paris", "paris"]
+        // [
+        //     ["java", "Java", "JAVA"],
+        //     ["programming", "Programming"]
+        // ]
         //
+        // BLANK_1 accepts any of first array
+        // BLANK_2 accepts any of second array
         // =====================================================
 
         acceptedAnswers: {
@@ -321,7 +326,7 @@ const questionSchema = new mongoose.Schema(
 
 
         // =====================================================
-        // CODING QUESTION
+        // CODING
         // =====================================================
 
         coding: {
@@ -332,35 +337,26 @@ const questionSchema = new mongoose.Schema(
 
             inputFormat: {
                 type: String,
-
                 default: ""
             },
-
 
             outputFormat: {
                 type: String,
-
                 default: ""
             },
-
 
             constraints: {
                 type: String,
-
                 default: ""
             },
-
 
             functionSignature: {
                 type: String,
-
                 default: ""
             },
 
-
             additionalNotes: {
                 type: String,
-
                 default: ""
             },
 
@@ -385,12 +381,11 @@ const questionSchema = new mongoose.Schema(
 
 
             // -------------------------------------------------
-            // Language Specific Configuration
+            // Language Configurations
             // -------------------------------------------------
 
             languageConfigurations: {
                 type: [languageConfigurationSchema],
-
                 default: []
             },
 
@@ -412,7 +407,6 @@ const questionSchema = new mongoose.Schema(
 
             sampleTestCases: {
                 type: [sampleTestCaseSchema],
-
                 default: []
             },
 
@@ -423,7 +417,6 @@ const questionSchema = new mongoose.Schema(
 
             hiddenTestCases: {
                 type: [hiddenTestCaseSchema],
-
                 default: []
             }
 
@@ -455,7 +448,6 @@ const questionSchema = new mongoose.Schema(
 
         version: {
             type: Number,
-
             default: 1
         },
 
@@ -466,9 +458,7 @@ const questionSchema = new mongoose.Schema(
 
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
-
             ref: "User",
-
             default: null
         },
 
@@ -479,9 +469,7 @@ const questionSchema = new mongoose.Schema(
 
         updatedBy: {
             type: mongoose.Schema.Types.ObjectId,
-
             ref: "User",
-
             default: null
         }
 
@@ -494,7 +482,7 @@ const questionSchema = new mongoose.Schema(
 
 
 // =========================================================
-// EXISTING DUPLICATE PROTECTION
+// DUPLICATE PROTECTION
 // =========================================================
 
 questionSchema.index(
@@ -510,156 +498,207 @@ questionSchema.index(
 
 
 // =========================================================
-// CODING QUESTION VALIDATION
+// QUESTION VALIDATION
 // =========================================================
 
-questionSchema.pre("validate", function (next) {
+questionSchema.pre(
+    "validate",
+    function(next) {
 
-    // =====================================================
-    // SINGLE CHOICE
-    // =====================================================
-
-    if (this.questionType === "SINGLE_CHOICE") {
+        // =====================================================
+        // COMMON MARK VALIDATION
+        // =====================================================
 
         if (
-            !this.options ||
-            Object.keys(this.options).length < 2
+            this.marks === undefined ||
+            this.marks === null ||
+            Number(this.marks) < 0
         ) {
             return next(
                 new Error(
-                    "Single Choice Question must have at least 2 options."
+                    "Question marks must be a valid non-negative number."
                 )
             );
         }
 
 
-        if (!this.answer) {
-            return next(
-                new Error(
-                    "Single Choice Question must have a correct answer."
-                )
-            );
+        // =====================================================
+        // SINGLE CHOICE
+        // =====================================================
+
+        if (
+            this.questionType ===
+            "SINGLE_CHOICE"
+        ) {
+
+            if (
+                !this.options ||
+                Object.keys(this.options).length < 2
+            ) {
+                return next(
+                    new Error(
+                        "Single Choice Question must have at least 2 options."
+                    )
+                );
+            }
+
+
+            if (
+                !this.answer ||
+                String(this.answer).trim() === ""
+            ) {
+                return next(
+                    new Error(
+                        "Single Choice Question must have a correct answer."
+                    )
+                );
+            }
         }
 
+
+        // =====================================================
+        // MULTIPLE CHOICE
+        // =====================================================
+
+        if (
+            this.questionType ===
+            "MULTIPLE_CHOICE"
+        ) {
+
+            if (
+                !this.options ||
+                Object.keys(this.options).length < 2
+            ) {
+                return next(
+                    new Error(
+                        "Multiple Choice Question must have at least 2 options."
+                    )
+                );
+            }
+
+
+            if (
+                !Array.isArray(this.correctAnswers) ||
+                this.correctAnswers.length === 0
+            ) {
+                return next(
+                    new Error(
+                        "Multiple Choice Question must have at least one correct answer."
+                    )
+                );
+            }
+        }
+
+
+        // =====================================================
+        // FILL BLANK
+        // =====================================================
+
+        if (
+            this.questionType ===
+            "FILL_BLANK"
+        ) {
+
+            if (
+                !Array.isArray(
+                    this.acceptedAnswers
+                ) ||
+                this.acceptedAnswers.length === 0
+            ) {
+                return next(
+                    new Error(
+                        "Fill in the Blank Question must have accepted answers."
+                    )
+                );
+            }
+
+
+            for (
+                const answers
+                of this.acceptedAnswers
+            ) {
+
+                if (
+                    !Array.isArray(answers) ||
+                    answers.length === 0
+                ) {
+                    return next(
+                        new Error(
+                            "Every blank must have at least one accepted answer."
+                        )
+                    );
+                }
+            }
+        }
+
+
+        // =====================================================
+        // CODING
+        // =====================================================
+
+        if (
+            this.questionType ===
+            "CODING"
+        ) {
+
+            if (!this.coding) {
+                return next(
+                    new Error(
+                        "Coding configuration is required."
+                    )
+                );
+            }
+
+
+            if (
+                !Array.isArray(
+                    this.coding.languages
+                ) ||
+                this.coding.languages.length === 0
+            ) {
+                return next(
+                    new Error(
+                        "At least one programming language is required."
+                    )
+                );
+            }
+
+
+            if (
+                !Array.isArray(
+                    this.coding.sampleTestCases
+                ) ||
+                this.coding.sampleTestCases.length === 0
+            ) {
+                return next(
+                    new Error(
+                        "At least one sample test case is required."
+                    )
+                );
+            }
+
+
+            if (
+                !Array.isArray(
+                    this.coding.hiddenTestCases
+                ) ||
+                this.coding.hiddenTestCases.length === 0
+            ) {
+                return next(
+                    new Error(
+                        "At least one hidden test case is required."
+                    )
+                );
+            }
+
+
+            
+        }
+
+
+        next();
     }
-
-
-    // =====================================================
-    // MULTIPLE CHOICE
-    // =====================================================
-
-    if (this.questionType === "MULTIPLE_CHOICE") {
-
-        if (
-            !this.options ||
-            Object.keys(this.options).length < 2
-        ) {
-            return next(
-                new Error(
-                    "Multiple Choice Question must have at least 2 options."
-                )
-            );
-        }
-
-
-        if (
-            !this.correctAnswers ||
-            this.correctAnswers.length === 0
-        ) {
-            return next(
-                new Error(
-                    "Multiple Choice Question must have at least one correct answer."
-                )
-            );
-        }
-
-    }
-
-
-    // =====================================================
-    // FILL IN THE BLANK
-    // =====================================================
-
-    if (this.questionType === "FILL_BLANK") {
-
-        if (
-            !this.acceptedAnswers ||
-            this.acceptedAnswers.length === 0
-        ) {
-            return next(
-                new Error(
-                    "Fill in the Blank Question must have at least one accepted answer."
-                )
-            );
-        }
-
-    }
-
-
-    // =====================================================
-    // CODING
-    // =====================================================
-
-    if (this.questionType === "CODING") {
-
-        if (!this.coding) {
-
-            return next(
-                new Error(
-                    "Coding configuration is required."
-                )
-            );
-
-        }
-
-
-        if (
-            !this.coding.languages ||
-            this.coding.languages.length === 0
-        ) {
-
-            return next(
-                new Error(
-                    "At least one programming language is required."
-                )
-            );
-
-        }
-
-
-        if (
-            !this.coding.sampleTestCases ||
-            this.coding.sampleTestCases.length === 0
-        ) {
-
-            return next(
-                new Error(
-                    "At least one sample test case is required."
-                )
-            );
-
-        }
-
-
-        if (
-            !this.coding.hiddenTestCases ||
-            this.coding.hiddenTestCases.length === 0
-        ) {
-
-            return next(
-                new Error(
-                    "At least one hidden test case is required."
-                )
-            );
-
-        }
-
-    }
-
-
-    next();
-
-});
+);
 
 
 module.exports = mongoose.model(

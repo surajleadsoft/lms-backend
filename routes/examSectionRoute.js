@@ -1,43 +1,833 @@
 const express = require('express');
 const router = express.Router();
-const ExamSection = require('../models/examSection'); // Adjust path as per your folder structure
-const Exams = require('../models/Exams'); // path may vary
-const Question = require('../models/Question'); 
-const Category = require('../models/Categories'); 
-const Student = require('../models/Student')
 
-function addTimes(time1, time2) {
-  const [h1, m1] = time1.split(':').map(Number);
-  const [h2, m2] = time2.split(':').map(Number);
-  let minutes = m1 + m2;
-  let hours = h1 + h2 + Math.floor(minutes / 60);
-  minutes %= 60;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+// Models
+const ExamSection = require('../models/examSection');
+const Exams = require('../models/Exams');
+const Question = require('../models/Question');
+const Category = require('../models/Categories');
+const Student = require('../models/Student');
+
+// ============================================================
+// HELPER FUNCTIONS
+// ============================================================
+
+/**
+ * Normalizes question type strings into standardized uppercase formats.
+ */
+function normalizeQuestionType(type) {
+  return String(type || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
 }
 
-const getStatusFromPercentage = (percentString) => {
-  const percent = parseFloat(percentString.replace('%', ''));
-  return percent >= 70 ? 'passed' : 'failed';
-};
-
-function addTimes(time1, time2) {
-  const [h1, m1] = time1.split(':').map(Number);
-  const [h2, m2] = time2.split(':').map(Number);
-  let minutes = m1 + m2;
-  let hours = h1 + h2 + Math.floor(minutes / 60);
-  minutes %= 60;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+/**
+ * Normalizes user/correct answer text by removing HTML tags, decoding entities,
+ * and stripping extra whitespace for accurate comparison.
+ */
+function normalizeAnswer(value) {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\u00a0/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 }
+
+/**
+ * Validates if an answer is non-existent or empty.
+ */
+function isEmptyAnswer(answer) {
+  if (answer === null || answer === undefined) return true;
+  if (Array.isArray(answer)) {
+    return answer.every(item => normalizeAnswer(item) === "");
+  }
+  return normalizeAnswer(answer) === "";
+}
+
+/**
+ * Safely extracts raw string values from primitive or object options.
+ */
+function extractOptionValue(option) {
+  if (option === null || option === undefined) return "";
+  if (typeof option === "object") {
+    return String(option.value ?? option.text ?? option.label ?? option.option ?? "");
+  }
+  return String(option);
+}
+
+/**
+ * Extracts options array out of primitive arrays or dynamic key-value option objects.
+ */
+function getOptions(question) {
+  const options = question?.options;
+  if (!options) return [];
+
+  if (Array.isArray(options)) {
+    return options.map((option, index) => ({
+      key: `option${index + 1}`,
+      index,
+      value: extractOptionValue(option)
+    }));
+  }
+
+  if (typeof options === "object") {
+    return Object.entries(options)
+      .filter(([key]) => /^option\d+$/i.test(key))
+      .sort(([a], [b]) => parseInt(a.replace(/\D/g, ""), 10) - parseInt(b.replace(/\D/g, ""), 10))
+      .map(([key, value], index) => ({
+        key,
+        index,
+        value: extractOptionValue(value)
+      }));
+  }
+
+  return [];
+}
+
+/**
+ * Resolves option references ("A", "option1", raw option text) to the target string.
+ */
+function resolveSingleChoice(question, answer) {
+  const submitted = normalizeAnswer(answer);
+  if (!submitted) return null;
+
+  const options = getOptions(question);
+  for (const option of options) {
+    const value = normalizeAnswer(option.value);
+    const key = normalizeAnswer(option.key);
+    const letter = String.fromCharCode(65 + option.index).toLowerCase();
+
+    if (submitted === value || submitted === key || submitted === letter) {
+      return option.value.trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * Adds time strings in HH:MM:SS or MM:SS format.
+ */
+function addTimes(t1 = "00:00:00", t2 = "00:00:00") {
+  const parse = (t) => {
+    const parts = String(t).split(':').map(Number);
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return 0;
+  };
+  
+  const sec1 = parse(t1);
+  const sec2 = parse(t2);
+  const total = sec1 + sec2;
+
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+
+  return [hours, minutes, seconds]
+    .map(v => String(v).padStart(2, '0'))
+    .join(':');
+}
+
+// ============================================================
+// QUESTION EVALUATORS
+// ============================================================
+
+function evaluateSingleChoice(question, userAnswer) {
+  if (isEmptyAnswer(userAnswer)) {
+    return { status: "skipped", attempted: false, correct: false, obtainedMarks: 0, userAnswer: null, correctAnswer: question.answer ?? null };
+  }
+
+  const resolvedUserAnswer = resolveSingleChoice(question, userAnswer);
+  if (resolvedUserAnswer === null) {
+    throw new Error(`Invalid option selected for question ${question._id}`);
+  }
+
+  const resolvedCorrectAnswer = resolveSingleChoice(question, question.answer);
+  const finalCorrectAnswer = resolvedCorrectAnswer !== null ? resolvedCorrectAnswer : String(question.answer ?? "");
+  const correct = normalizeAnswer(resolvedUserAnswer) === normalizeAnswer(finalCorrectAnswer);
+
+  return {
+    status: correct ? "correct" : "wrong",
+    attempted: true,
+    correct,
+    obtainedMarks: correct ? Number(question.marks || 0) : 0,
+    userAnswer: resolvedUserAnswer,
+    correctAnswer: finalCorrectAnswer
+  };
+}
+
+function evaluateTrueFalse(question, userAnswer) {
+  if (isEmptyAnswer(userAnswer)) {
+    return { status: "skipped", attempted: false, correct: false, obtainedMarks: 0, userAnswer: null };
+  }
+
+  const user = normalizeAnswer(userAnswer);
+  if (user !== "true" && user !== "false") {
+    throw new Error("Invalid TRUE_FALSE answer");
+  }
+
+  const correctAnswer = normalizeAnswer(question.answer);
+  const correct = user === correctAnswer;
+
+  return {
+    status: correct ? "correct" : "wrong",
+    attempted: true,
+    correct,
+    obtainedMarks: correct ? Number(question.marks || 0) : 0,
+    userAnswer: user,
+    correctAnswer
+  };
+}
+
+function evaluateMultipleChoice(question, userAnswer) {
+  if (!Array.isArray(userAnswer) || userAnswer.length === 0) {
+    return { status: "skipped", attempted: false, correct: false, obtainedMarks: 0, userAnswer: [] };
+  }
+
+  const resolve = answer => {
+    const result = resolveSingleChoice(question, answer);
+    return result ? normalizeAnswer(result) : null;
+  };
+
+  const submitted = userAnswer.map(resolve).filter(Boolean);
+  if (submitted.length !== userAnswer.length) {
+    throw new Error("Invalid multiple-choice option selected");
+  }
+
+  const correctAnswers = Array.isArray(question.correctAnswers) ? question.correctAnswers : [];
+  const correct = correctAnswers.map(resolve).filter(Boolean);
+
+  submitted.sort();
+  correct.sort();
+
+  const isCorrect = submitted.length === correct.length && submitted.every((val, idx) => val === correct[idx]);
+
+  return {
+    status: isCorrect ? "correct" : "wrong",
+    attempted: true,
+    correct: isCorrect,
+    obtainedMarks: isCorrect ? Number(question.marks || 0) : 0,
+    userAnswer: submitted
+  };
+}
+
+function evaluateFillBlank(question, userAnswer) {
+  const answers = Array.isArray(userAnswer) ? userAnswer : [];
+  const accepted = Array.isArray(question.acceptedAnswers) ? question.acceptedAnswers : [];
+  const blankCount = accepted.length;
+
+  if (blankCount === 0) {
+    return { status: "skipped", attempted: false, correct: false, obtainedMarks: 0, blankResults: [] };
+  }
+
+  let attemptedCount = 0;
+  let correctCount = 0;
+  const blankResults = new Array(blankCount);
+
+  for (let i = 0; i < blankCount; i++) {
+    const rawUser = answers[i] ?? "";
+    const user = normalizeAnswer(rawUser);
+    const acceptedForBlank = Array.isArray(accepted[i]) ? accepted[i] : [];
+    const acceptedNormalized = acceptedForBlank.map(normalizeAnswer).filter(Boolean);
+
+    const attempted = user !== "";
+    const correct = attempted && acceptedNormalized.includes(user);
+
+    if (attempted) attemptedCount++;
+    if (correct) correctCount++;
+
+    blankResults[i] = {
+      blank: `BLANK_${i + 1}`,
+      userAnswer: rawUser,
+      correct,
+      acceptedAnswers: acceptedForBlank
+    };
+  }
+
+  if (attemptedCount === 0) {
+    return { status: "skipped", attempted: false, correct: false, obtainedMarks: 0, blankResults };
+  }
+
+  const marks = Number(question.marks || 0);
+  const obtainedMarks = Number((marks * (correctCount / blankCount)).toFixed(2));
+  const correct = correctCount === blankCount;
+
+  return {
+    status: correct ? "correct" : "wrong",
+    attempted: true,
+    correct,
+    obtainedMarks,
+    userAnswer: answers,
+    blankResults
+  };
+}
+
+function calculateCodingMarks(question, codingSubmission) {
+
+    console.log(
+        "\n========== CODING MARK CALCULATION =========="
+    );
+
+    console.log(
+        "Question ID:",
+        question?._id
+    );
+
+    console.log(
+        "Question Marks:",
+        question?.marks
+    );
+
+
+    // ============================================================
+    // GET HIDDEN TEST CASES
+    // ============================================================
+
+    let hiddenTests = [];
+
+    if (
+        Array.isArray(
+            question?.coding?.hiddenTestCases
+        )
+    ) {
+        hiddenTests =
+            question.coding.hiddenTestCases;
+
+    } else if (
+        Array.isArray(
+            question?.hiddenTestCases
+        )
+    ) {
+        hiddenTests =
+            question.hiddenTestCases;
+
+    } else if (
+        Array.isArray(
+            question?.testCases
+        )
+    ) {
+        hiddenTests =
+            question.testCases.filter(
+                tc =>
+                    tc?.isHidden === true ||
+                    tc?.is_hidden === true ||
+                    tc?.hidden === true
+            );
+    }
+
+
+    // ============================================================
+    // GET TEST RESULTS
+    // ============================================================
+
+    let results = [];
+
+    if (
+        Array.isArray(
+            codingSubmission?.hiddenTestResults
+        ) &&
+        codingSubmission.hiddenTestResults.length > 0
+    ) {
+
+        results =
+            codingSubmission.hiddenTestResults;
+
+    } else if (
+        Array.isArray(
+            codingSubmission?.testResults
+        ) &&
+        codingSubmission.testResults.length > 0
+    ) {
+
+        results =
+            codingSubmission.testResults;
+
+    } else if (
+        Array.isArray(
+            codingSubmission
+                ?.codingResult
+                ?.hiddenTestResults
+        ) &&
+        codingSubmission
+            .codingResult
+            .hiddenTestResults.length > 0
+    ) {
+
+        results =
+            codingSubmission
+                .codingResult
+                .hiddenTestResults;
+    }
+
+
+    // ============================================================
+    // CHECK WHETHER CODE WAS SUBMITTED
+    // ============================================================
+
+    const hasCode =
+        Boolean(
+            codingSubmission?.code &&
+            String(
+                codingSubmission.code
+            ).trim().length > 0
+        );
+
+
+    // ============================================================
+    // NO HIDDEN TEST CASES
+    // ============================================================
+
+    if (
+        hiddenTests.length === 0
+    ) {
+
+        console.log(
+            "No hidden test cases found."
+        );
+
+        return {
+
+            status:
+                hasCode
+                    ? "wrong"
+                    : "skipped",
+
+            attempted:
+                hasCode,
+
+            correct:
+                false,
+
+            obtainedMarks:
+                0,
+
+            weightedPassed:
+                0,
+
+            weightedTotal:
+                0,
+
+            passedTestCases:
+                0,
+
+            totalTestCases:
+                0,
+
+            hiddenTestResults:
+                []
+        };
+    }
+
+
+    // ============================================================
+    // GET QUESTION MARKS
+    //
+    // Coding question marks come from question.marks.
+    //
+    // Example:
+    //
+    // question.marks = 15
+    // ============================================================
+
+    const totalQuestionMarks =
+        Number(
+            question?.marks ??
+            question?.coding?.marks ??
+            question?.totalMarks ??
+            15
+        );
+
+
+    // ============================================================
+    // TOTAL HIDDEN TEST CASES
+    // ============================================================
+
+    const totalTestCases =
+        hiddenTests.length;
+
+
+    // ============================================================
+    // MARKS FOR EACH HIDDEN TEST CASE
+    //
+    // Example:
+    //
+    // Question = 15 marks
+    // Hidden tests = 5
+    //
+    // 15 / 5 = 3 marks per test
+    // ============================================================
+
+    const marksPerTestCase =
+        totalTestCases > 0
+            ? totalQuestionMarks /
+              totalTestCases
+            : 0;
+
+
+    // ============================================================
+    // BUILD FINAL HIDDEN TEST RESULT ARRAY
+    // ============================================================
+
+    const hiddenTestResults =
+        hiddenTests.map(
+            (testCase, index) => {
+
+                const testCaseNumber =
+                    index + 1;
+
+
+                // ====================================================
+                // FIND RESULT FOR CURRENT TEST CASE
+                // ====================================================
+
+                const result =
+                    results.find(
+                        r =>
+                            Number(
+                                r?.testCase
+                            ) ===
+                            testCaseNumber
+                    ) ||
+                    results.find(
+                        r =>
+                            Number(
+                                r?.testCaseId
+                            ) ===
+                            testCaseNumber
+                    ) ||
+                    results[index] ||
+                    {};
+
+
+                // ====================================================
+                // READ STATUS DESCRIPTION
+                // ====================================================
+
+                const statusDescription =
+                    typeof result?.status === "object"
+                        ? String(
+                            result
+                                ?.status
+                                ?.description ||
+                            ""
+                        )
+                        : String(
+                            result?.status ||
+                            ""
+                        );
+
+
+                // ====================================================
+                // READ VERDICT
+                // ====================================================
+
+                const verdict =
+                    String(
+                        result?.verdict ||
+                        ""
+                    )
+                        .trim()
+                        .toUpperCase();
+
+
+                // ====================================================
+                // CHECK WHETHER THIS TEST PASSED
+                // ====================================================
+
+                const passed =
+                    result?.passed === true ||
+
+                    result?.passed === "true" ||
+
+                    result?.isPassed === true ||
+
+                    result?.success === true ||
+
+                    statusDescription
+                        .trim()
+                        .toLowerCase() ===
+                        "passed" ||
+
+                    statusDescription
+                        .trim()
+                        .toLowerCase() ===
+                        "accepted" ||
+
+                    verdict ===
+                        "ACCEPTED" ||
+
+                    verdict ===
+                        "PASSED" ||
+
+                    Number(
+                        result?.statusId
+                    ) === 3 ||
+
+                    Number(
+                        result?.status?.id
+                    ) === 3;
+
+
+                // ====================================================
+                // MARKS FOR THIS TEST CASE
+                //
+                // PASSED = equal share of question marks
+                // FAILED = 0
+                // ====================================================
+
+                const marksAwarded =
+                    passed
+                        ? Number(
+                            marksPerTestCase.toFixed(2)
+                        )
+                        : 0;
+
+
+                return {
+
+                    testCase:
+                        testCaseNumber,
+
+                    passed,
+
+                    marksAwarded,
+
+                    // Keep for compatibility
+                    weight:
+                        1,
+
+                    actualOutput:
+                        result?.actualOutput ??
+                        result?.output ??
+                        "",
+
+                    expectedOutput:
+                        testCase?.expectedOutput ??
+                        testCase?.output ??
+                        "",
+
+                    verdict:
+                        result?.verdict ??
+                        statusDescription ??
+                        ""
+                };
+            }
+        );
+
+
+    // ============================================================
+    // COUNT PASSED HIDDEN TEST CASES
+    // ============================================================
+
+    const passedHiddenTestCases =
+        hiddenTestResults.filter(
+            testCase =>
+                testCase.passed === true
+        ).length;
+
+
+    // ============================================================
+    // CALCULATE OBTAINED MARKS
+    //
+    // THIS IS THE IMPORTANT PART.
+    //
+    // obtainedMarks =
+    //
+    // passed hidden tests
+    // ×
+    // marks for each hidden test
+    //
+    // Example:
+    //
+    // Question = 15
+    // Tests = 5
+    // Passed = 3
+    //
+    // Marks/test = 15 / 5 = 3
+    //
+    // Obtained = 3 × 3 = 9
+    // ============================================================
+
+    const obtainedMarks =
+        Number(
+            (
+                passedHiddenTestCases *
+                marksPerTestCase
+            ).toFixed(2)
+        );
+
+
+    // ============================================================
+    // QUESTION IS CORRECT ONLY IF ALL TESTS PASSED
+    // ============================================================
+
+    const correct =
+        passedHiddenTestCases ===
+        totalTestCases;
+
+
+    // ============================================================
+    // STATUS
+    //
+    // IMPORTANT:
+    //
+    // We DO NOT use "partial".
+    //
+    // Partial marks are represented through obtainedMarks.
+    //
+    // 3/5 tests:
+    // status = wrong
+    // obtainedMarks = 9
+    // ============================================================
+
+    let status;
+
+    if (!hasCode) {
+
+        status =
+            "skipped";
+
+    } else if (correct) {
+
+        status =
+            "correct";
+
+    } else {
+
+        status =
+            "wrong";
+    }
+
+
+    // ============================================================
+    // DEBUG
+    // ============================================================
+
+    console.log(
+        "--------------------------------------------"
+    );
+
+    console.log(
+        "Question Marks:",
+        totalQuestionMarks
+    );
+
+    console.log(
+        "Hidden Test Cases:",
+        totalTestCases
+    );
+
+    console.log(
+        "Marks Per Test Case:",
+        marksPerTestCase
+    );
+
+    console.log(
+        "Passed Hidden Tests:",
+        passedHiddenTestCases
+    );
+
+    console.log(
+        "Failed Hidden Tests:",
+        totalTestCases -
+        passedHiddenTestCases
+    );
+
+    console.log(
+        "Obtained Marks:",
+        obtainedMarks
+    );
+
+    console.log(
+        "Status:",
+        status
+    );
+
+    console.log(
+        "--------------------------------------------"
+    );
+
+
+    // ============================================================
+    // RETURN FINAL CODING RESULT
+    // ============================================================
+
+    return {
+
+        status,
+
+        attempted:
+            hasCode,
+
+        correct,
+
+        obtainedMarks,
+
+        // These remain COUNTS for compatibility
+        // with your existing ExamSection schema.
+
+        weightedPassed:
+            passedHiddenTestCases,
+
+        weightedTotal:
+            totalTestCases,
+
+        passedTestCases:
+            passedHiddenTestCases,
+
+        totalTestCases,
+
+        hiddenTestResults
+    };
+}
+function evaluateQuestion(question, userAnswer, codingSubmission = null) {
+  if (!question) throw new Error("Question data is required");
+
+  const type = normalizeQuestionType(question.questionType);
+
+  switch (type) {
+    case "SINGLE_CHOICE":
+    case "SINGLE_CHOICE_QUESTION":
+    case "MCQ":
+      return evaluateSingleChoice(question, userAnswer);
+    case "TRUE_FALSE":
+    case "TRUE_FALSE_QUESTION":
+      return evaluateTrueFalse(question, userAnswer);
+    case "MULTIPLE_CHOICE":
+    case "MULTIPLE_CHOICE_QUESTION":
+    case "MULTI_CHOICE":
+      return evaluateMultipleChoice(question, userAnswer);
+    case "FILL_BLANK":
+    case "FILL_IN_THE_BLANK":
+    case "FILL":
+      return evaluateFillBlank(question, userAnswer);
+    case "CODING":
+      return calculateCodingMarks(question, codingSubmission);
+    default:
+      throw new Error(`Unsupported question type: ${question.questionType}`);
+  }
+}
+
+// ============================================================
+// API ROUTES
+// ============================================================
 
 router.post('/exam-consolated-summary', async (req, res) => {
   try {
     const { examNames } = req.body;
-
     if (!Array.isArray(examNames) || examNames.length === 0) {
       return res.status(400).json({ status: false, error: 'examNames (array) is required' });
     }
 
-    // Parallelize DB queries
     const [exams, attemptResults] = await Promise.all([
       Exams.find({ examName: { $in: examNames } }, { examName: 1, category: 1 }).lean(),
       ExamSection.aggregate([
@@ -134,7 +924,6 @@ router.post('/exam-consolated-summary', async (req, res) => {
       { "basic.firstName": 1, "basic.lastName": 1, "basic.emailAddress": 1 }
     ).lean();
 
-    // Map attempt results by email
     const attemptMap = new Map(attemptResults.map(r => [r.emailAddress, r]));
 
     const finalData = students.map(stu => {
@@ -143,7 +932,7 @@ router.post('/exam-consolated-summary', async (req, res) => {
       const studentRecords = attempt ? attempt.examRecords : [];
       const fullName = `${stu.basic.firstName} ${stu.basic.lastName}`;
 
-      const consolidatedRecords = examNames.map(examName => {
+      const consolidatedRecords = examNames.flatMap(examName => {
         const recordsForExam = studentRecords.filter(rec => rec.examName === examName);
         return recordsForExam.length > 0
           ? recordsForExam
@@ -155,12 +944,11 @@ router.post('/exam-consolated-summary', async (req, res) => {
               timeTaken: 'N/A',
               marksObtained: 'Absent'
             }];
-      }).flat();
+      });
 
       return { emailAddress: studentEmail, fullName, examRecords: consolidatedRecords };
     });
 
-    // Sort by total correct desc
     finalData.sort((a, b) =>
       b.examRecords.reduce((s, r) => s + (Number(r.totalCorrect) || 0), 0) -
       a.examRecords.reduce((s, r) => s + (Number(r.totalCorrect) || 0), 0)
@@ -173,70 +961,44 @@ router.post('/exam-consolated-summary', async (req, res) => {
   }
 });
 
-
-// -------------------------
-// Exam Attempted
-// -------------------------
-router.get('/exam-attempted', async (req, res) => {
+router.get("/exam-attempted", async (req, res) => {
   try {
     const { emailAddress } = req.query;
-    if (!emailAddress) return res.json({ status: false, message: 'emailAddress is required' });
-
-    const records = await ExamSection.find(
-      { emailAddress },
-      { examName: 1, sections: 1 }
-    ).lean();
-
-    if (!records.length) {
-      return res.json({ status: false, message: 'No records found', count: 0, records: [] });
+    if (!emailAddress) {
+      return res.status(400).json({ status: false, message: "emailAddress is required." });
     }
 
-    res.json({ status: true, message: 'Records found', count: records.length, records });
+    const records = await ExamSection.find({ emailAddress })
+      .populate('sections.questions.questionId')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.json({ status: true, count: records.length, records });
   } catch (error) {
-    console.error("Error in /exam-attempted:", error);
-    res.status(500).json({ status: false, message: 'Something went wrong' });
+    console.error("EXAM ATTEMPTED ERROR:", error);
+    return res.status(500).json({ status: false, message: "Failed to fetch exam attempts." });
   }
 });
 
-// -------------------------
-// Exam Summary
-// -------------------------
 router.get('/exam-summary', async (req, res) => {
   const { examName } = req.query;
-
-  if (!examName) {
-    return res.json({ status: false, error: "examName is required" });
-  }
+  if (!examName) return res.json({ status: false, error: "examName is required" });
 
   try {
-    // 1. Fetch exam
     const exam = await Exams.findOne({ examName }).lean();
-    if (!exam) {
-      return res.json({ status: false, message: "Exam not found" });
-    }
+    if (!exam) return res.json({ status: false, message: "Exam not found" });
 
-    // 2. Fetch category
     const categoryExam = await Category.findOne({ categoryName: exam.category }).lean();
-    if (!categoryExam) {
-      return res.json({ status: false, message: "Category not found" });
-    }
+    if (!categoryExam) return res.json({ status: false, message: "Category not found" });
 
-    // 3. All active students of this category
     const allStudents = await Student.find(
       { "basic.courseName.courseName": categoryExam.courseName, "basic.isActive": true },
       { "basic.firstName": 1, "basic.lastName": 1, "basic.emailAddress": 1 }
     ).lean();
 
-    // 4. All attempted records for this exam
     const attemptedStudents = await ExamSection.find({ examName }).lean();
+    const attemptedMap = new Map(attemptedStudents.map(record => [record.emailAddress, record]));
 
-    // Build map for O(1) lookup
-    const attemptedMap = new Map();
-    attemptedStudents.forEach(record => {
-      attemptedMap.set(record.emailAddress, record);
-    });
-
-    // 5. Prepare results
     const results = allStudents.map(student => {
       const fullName = `${student.basic.firstName} ${student.basic.lastName}`.trim();
       const emailAddress = student.basic.emailAddress;
@@ -256,13 +1018,9 @@ router.get('/exam-summary', async (req, res) => {
         };
       }
 
-      const { totalMarksObtained, totalCorrect, totalWrong, totalAttempted, totalTimeTaken, sections } = examRecord;
-
+      const { totalMarksObtained, totalTimeTaken, sections } = examRecord;
       const totalMarks = sections.reduce((sum, sec) => sum + (sec.totalMarks || 0), 0);
-
-      const percentage = totalMarks > 0
-        ? `${((totalMarksObtained / totalMarks) * 100).toFixed(2)}%`
-        : "0.00%";
+      const percentage = totalMarks > 0 ? `${((totalMarksObtained / totalMarks) * 100).toFixed(2)}%` : "0.00%";
 
       return {
         fullName,
@@ -289,1326 +1047,258 @@ router.get('/exam-summary', async (req, res) => {
   }
 });
 
-
-// -------------------------
-// Exam Result Summary
-// -------------------------
-router.post('/exam-result-summary', async (req, res) => {
+router.post("/addSection", async (req, res) => {
   try {
-    const { examName, emailAddress, fullName } = req.body;
-    if (!examName || !emailAddress || !fullName) {
-      return res.json({ status: false, message: 'examName, emailAddress & fullName required' });
+    const { examName, emailAddress, fullName, section, status } = req.body;
+
+    if (!examName || !emailAddress || !fullName || !section || !section.sectionName) {
+      return res.status(400).json({ status: false, message: "examName, emailAddress, fullName and section are required." });
     }
 
-    const record = await ExamSection.findOne(
-      { examName, emailAddress, fullName },
-      { sections: 1 }
-    ).lean();
+    const submittedQuestions = Array.isArray(section.questions) ? section.questions : [];
+    const questionIds = submittedQuestions.map(q => q.questionId).filter(Boolean);
 
-    if (!record) return res.json({ status: false, message: 'No record found' });
+    const databaseQuestions = await Question.find({ _id: { $in: questionIds } }).lean();
+    const questionMap = new Map(databaseQuestions.map(q => [String(q._id), q]));
 
-    const summary = record.sections.map(section => {
-      const totalCorrect = section.questions.filter(q => q.status === "correct").length;
-      const totalWrong = section.questions.filter(q => q.status === "wrong").length;
-      const marksObtained = ((totalCorrect / section.noOfquestions) * section.totalMarks).toFixed(2);
+    const processedQuestions = [];
 
-      return {
-        sectionName: section.sectionName,
-        totalCorrect,
-        totalWrong,
-        timeTaken: section.timeTaken,
-        marksObtained,
-        totalMarks: section.totalMarks,
-        noOfquestions: section.noOfquestions
+    for (const attemptedQuestion of submittedQuestions) {
+      const originalQuestion = questionMap.get(String(attemptedQuestion.questionId));
+      if (!originalQuestion) continue;
+
+      const userAnswer = attemptedQuestion.userAnswer;
+      const questionType = normalizeQuestionType(originalQuestion.questionType);
+
+      // Extract and normalize coding payload
+      let codingSubmission = null;
+      // Replace the CODING extraction block inside router.post("/addSection")
+
+      // Updated CODING processing inside router.post("/addSection")
+
+      if (questionType === "CODING") {
+        const rawCoding = attemptedQuestion.codingSubmission || attemptedQuestion.codingResult || {};
+        
+        const code = typeof userAnswer === "string" 
+          ? userAnswer 
+          : (userAnswer?.code || rawCoding.code || attemptedQuestion.code || "");
+
+        // Gather hidden test results if forwarded by frontend
+        let hiddenTestResults = 
+          Array.isArray(rawCoding.hiddenTestResults) && rawCoding.hiddenTestResults.length > 0 ? rawCoding.hiddenTestResults :
+          Array.isArray(attemptedQuestion.hiddenTestResults) && attemptedQuestion.hiddenTestResults.length > 0 ? attemptedQuestion.hiddenTestResults :
+          Array.isArray(userAnswer?.hiddenTestResults) && userAnswer.hiddenTestResults.length > 0 ? userAnswer.hiddenTestResults :
+          Array.isArray(rawCoding.codingResult?.hiddenTestResults) && rawCoding.codingResult.hiddenTestResults.length > 0 ? rawCoding.codingResult.hiddenTestResults : [];
+
+        // Fallback: If frontend submitted code without test execution results, evaluate against DB hidden cases
+        
+
+        codingSubmission = {
+          language: rawCoding.language || attemptedQuestion.language || userAnswer?.language || "java",
+          code: code,
+          hiddenTestResults: hiddenTestResults,
+          codingResult: rawCoding.codingResult || rawCoding || userAnswer
+        };
+
+        console.log('CODING SUBMISSION = ',codingSubmission)
+      }
+
+      // Evaluate question against database version
+      const result = evaluateQuestion(originalQuestion, userAnswer, codingSubmission);
+
+      const processedQuestion = {
+        questionId: originalQuestion._id,
+        userAnswer: userAnswer ?? null,
+        questionType,
+        status: result.status,
+        obtainedMarks: Number(result.obtainedMarks || 0)
       };
-    });
 
-    const totalMarksObtained = summary.reduce((sum, sec) => sum + Number(sec.marksObtained), 0);
-    const totalMarks = summary.reduce((sum, sec) => sum + sec.totalMarks, 0);
-    const totalCorrect = summary.reduce((sum, sec) => sum + sec.totalCorrect, 0);
-    const totalWrong = summary.reduce((sum, sec) => sum + sec.totalWrong, 0);
-    const totalQuestions = summary.reduce((sum, sec) => sum + sec.noOfquestions, 0);
-    const totalTimeTaken = summary.reduce((time, sec) => addTimes(time, sec.timeTaken), '00:00');
+      if (questionType === "FILL_BLANK") {
+        processedQuestion.blankResults = result.blankResults || [];
+      }
 
-    const resultSummary = {
-      totalMarksObtained,
-      totalMarks,
-      totalCorrect,
-      totalWrong,
-      totalQuestions,
-      totalTimeTaken
+      if (questionType === "CODING") {
+    processedQuestion.codingResult = {
+        language:
+            codingSubmission?.language || "",
+
+        code:
+            codingSubmission?.code || "",
+
+        verdict:
+            result.status || "",
+
+        passedTestCases:
+            Number(result.passedTestCases || 0),
+
+        totalTestCases:
+            Number(result.totalTestCases || 0),
+
+        weightedPassed:
+            Number(result.weightedPassed || 0),
+
+        weightedTotal:
+            Number(result.weightedTotal || 0),
+
+        obtainedMarks:
+            Number(result.obtainedMarks || 0),
+
+        totalMarks:
+            Number(
+                originalQuestion.marks ||
+                originalQuestion.totalMarks ||
+                15
+            ),
+
+        hiddenTestResults:
+            result.hiddenTestResults || []
+    };
+}
+
+      processedQuestions.push(processedQuestion);
+    }
+
+    const attempted =
+    processedQuestions.filter(
+        q => q.status !== "skipped"
+    ).length;
+
+const correct =
+    processedQuestions.filter(
+        q => q.status === "correct"
+    ).length;
+
+const wrong =
+    processedQuestions.filter(
+        q =>
+            q.status === "wrong" ||
+            q.status === "partial"
+    ).length;
+
+const skipped =
+    processedQuestions.filter(
+        q => q.status === "skipped"
+    ).length;
+    const marksObtained = Number(processedQuestions.reduce((sum, q) => sum + Number(q.obtainedMarks || 0), 0).toFixed(2));
+
+    const sectionData = {
+      sectionName: section.sectionName,
+      totalDuration: Number(section.totalDuration || 0),
+      totalMarks: Number(section.totalMarks || 0),
+      noOfquestions: Number(section.noOfquestions || processedQuestions.length),
+      questions: processedQuestions,
+      attempted,
+      correct,
+      wrong,
+      skipped,
+      marksObtained,
+      timeTaken: section.timeTaken || "00:00:00"
     };
 
-    res.json({ status: true, message: 'Result summary fetched successfully', data: resultSummary });
+    let examSection = await ExamSection.findOne({ emailAddress, examName });
+
+    if (!examSection) {
+      examSection = new ExamSection({
+        emailAddress,
+        fullName,
+        examName,
+        sections: [sectionData],
+        status: "in-progress",
+        startedAt: new Date()
+      });
+    } else {
+      const existingIndex = examSection.sections.findIndex(s => s.sectionName === section.sectionName);
+      if (existingIndex !== -1) {
+        examSection.sections[existingIndex] = sectionData;
+      } else {
+        examSection.sections.push(sectionData);
+      }
+    }
+
+    let totalQuestions = 0, totalAttempted = 0, totalCorrect = 0, totalWrong = 0, totalSkipped = 0, totalMarks = 0, totalMarksObtained = 0;
+    let totalTimeTaken = "00:00:00";
+
+    examSection.sections.forEach(currentSection => {
+      totalQuestions += Number(currentSection.noOfquestions || 0);
+      totalAttempted += Number(currentSection.attempted || 0);
+      totalCorrect += Number(currentSection.correct || 0);
+      totalWrong += Number(currentSection.wrong || 0);
+      totalSkipped += Number(currentSection.skipped || 0);
+      totalMarks += Number(currentSection.totalMarks || 0);
+      totalMarksObtained += Number(currentSection.marksObtained || 0);
+      totalTimeTaken = addTimes(totalTimeTaken, currentSection.timeTaken || "00:00:00");
+    });
+
+    examSection.totalQuestions = totalQuestions;
+    examSection.totalAttempted = totalAttempted;
+    examSection.totalCorrect = totalCorrect;
+    examSection.totalWrong = totalWrong;
+    examSection.totalSkipped = totalSkipped;
+    examSection.totalMarks = Number(totalMarks.toFixed(2));
+    examSection.totalMarksObtained = Number(totalMarksObtained.toFixed(2));
+    examSection.totalTimeTaken = totalTimeTaken;
+
+    const normalizedStatus = String(status || "").trim().toLowerCase();
+    if (normalizedStatus === "completed") {
+      examSection.status = "completed";
+      examSection.completedAt = new Date();
+    } else if (normalizedStatus === "cheated") {
+      examSection.status = "cheated";
+      examSection.completedAt = new Date();
+    } else {
+      examSection.status = "in-progress";
+    }
+
+    await examSection.save();
+
+    return res.status(200).json({
+      status: true,
+      message: examSection.status === "completed" ? "Exam completed successfully." : "Section saved successfully.",
+      examCompleted: examSection.status === "completed",
+      data: {
+        section: sectionData,
+        totalQuestions: examSection.totalQuestions,
+        totalAttempted: examSection.totalAttempted,
+        totalCorrect: examSection.totalCorrect,
+        totalWrong: examSection.totalWrong,
+        totalSkipped: examSection.totalSkipped,
+        totalMarks: examSection.totalMarks,
+        totalMarksObtained: examSection.totalMarksObtained,
+        totalTimeTaken: examSection.totalTimeTaken,
+        examStatus: examSection.status,
+        completedAt: examSection.completedAt || null
+      }
+    });
   } catch (error) {
-    console.error("Error in /exam-result-summary:", error);
-    res.status(500).json({ status: false, message: 'Something went wrong' });
+    console.error("ADD SECTION ERROR:", error);
+    return res.status(500).json({ status: false, message: "Failed to save section.", error: error.message });
   }
 });
 
-
-// // POST /exam/addSection
-// router.post('/addSection', async (req, res) => {
-//   try {
-//     const { examName, emailAddress, fullName, section, status } = req.body;
-
-//     if (!examName || !emailAddress || !fullName || !section || !section.sectionName) {
-//       return res.json({ status: false, message: "examName, emailAddress, fullName, sectionName required" });
-//     }
-
-//     const questions = Array.isArray(section.questions) ? section.questions : [];
-
-//     // ✅ Pre-compute per-section stats before DB call
-//     const totalAttempted = questions.filter(q => q.userAnswer !== null).length || 0;
-//     const totalCorrect = questions.filter(q => q.status === "correct").length || 0;
-//     const totalWrong = questions.filter(q => q.status === "wrong").length || 0;
-//     const marksObtained = section.noOfquestions > 0 
-//       ? Number(((totalCorrect / section.noOfquestions) * section.totalMarks).toFixed(2)) 
-//       : 0;
-
-//     section.attempted = totalAttempted;
-//     section.correct = totalCorrect;
-//     section.wrong = totalWrong;
-//     section.marksObtained = marksObtained;
-//     section.timeTaken = section.timeTaken || '00:00';
-
-//     // ✅ Try update existing section atomically
-//     let record = await ExamSection.findOneAndUpdate(
-//       {
-//         examName,
-//         emailAddress,
-//         fullName,
-//         "sections.sectionName": section.sectionName
-//       },
-//       {
-//         $set: {
-//           "sections.$.questions": section.questions,
-//           "sections.$.attempted": section.attempted,
-//           "sections.$.correct": section.correct,
-//           "sections.$.wrong": section.wrong,
-//           "sections.$.marksObtained": section.marksObtained,
-//           "sections.$.timeTaken": section.timeTaken,
-//           "sections.$.totalMarks": section.totalMarks,
-//           "sections.$.noOfquestions": section.noOfquestions,
-//           "sections.$.totalDuration": section.totalDuration
-//         }
-//       },
-//       { new: true }
-//     );
-
-//     if (!record) {
-//       // ✅ If no matching section → push as new
-//       record = await ExamSection.findOneAndUpdate(
-//         { examName, emailAddress, fullName },
-//         {
-//           $push: { sections: section },
-//           $setOnInsert: { status: 'in-progress', startedAt: new Date() }
-//         },
-//         { new: true, upsert: true }
-//       );
-//     }
-
-//     // ✅ Recompute totals (still need to aggregate at app level)
-//     let totalMarksObtained = 0, totalMarks = 0, totalCorrectAll = 0, totalWrongAll = 0, totalQuestions = 0, totalTimeTaken = '00:00';
-
-//     record.sections.forEach(sec => {
-//       totalMarksObtained += Number(sec.marksObtained || 0);
-//       totalMarks += Number(sec.totalMarks || 0);
-//       totalCorrectAll += Number(sec.correct || 0);
-//       totalWrongAll += Number(sec.wrong || 0);
-//       totalQuestions += Number(sec.noOfquestions || 0);
-//       totalTimeTaken = addTimes(totalTimeTaken, sec.timeTaken || '00:00');
-//     });
-
-//     await ExamSection.updateOne(
-//       { _id: record._id },
-//       {
-//         $set: {
-//           totalMarksObtained,
-//           totalMarks,
-//           totalCorrect: totalCorrectAll,
-//           totalWrong: totalWrongAll,
-//           totalQuestions,
-//           totalTimeTaken,
-//           ...(status && {
-//             status,
-//             completedAt: status === "completed" ? new Date() : undefined
-//           })
-//         }
-//       }
-//     );
-
-//     res.json({ status: true, message: "Section saved successfully", data: record });
-//   } catch (error) {
-//     console.error("Error in /addSection:", error);
-//     res.status(500).json({ status: false, message: "Something went wrong" });
-//   }
-// });
-
-// router.post('/cheated-sections', async (req, res) => {
-//   try {
-//     const { examName, emailAddress, fullName, sections } = req.body;
-
-//     if (!examName || !emailAddress || !fullName || !Array.isArray(sections)) {
-//       return res.json({
-//         status: false,
-//         message: "examName, emailAddress, fullName, sections (array) required"
-//       });
-//     }
-
-//     let record = await ExamSection.findOne({ examName, emailAddress, fullName });
-
-//     if (!record) {
-//       // Create new record if not exists
-//       record = new ExamSection({
-//         examName,
-//         emailAddress,
-//         fullName,
-//         sections: [],
-//         status: "cheated", // 🚨 FORCE CHEATED
-//         startedAt: new Date()
-//       });
-//     }
-
-//     for (let section of sections) {
-//       if (!section.sectionName) continue;
-
-//       const questions = Array.isArray(section.questions) ? section.questions : [];
-
-//       // ✅ clear all answers when cheated
-//       section.questions = questions.map(q => ({
-//         ...q,
-//         userAnswer: "",
-//         status: "skipped"
-//       }));
-
-//       // ✅ Ensure safe defaults for required fields
-//       const noOfquestions = Number(section.noOfquestions) || 0;
-//       const totalMarks = Number(section.totalMarks) || 0;
-
-//       // ✅ Per-section stats
-//       section.noOfquestions = noOfquestions;
-//       section.totalMarks = totalMarks;
-//       section.attempted = 0; // cheating → 0 attempt
-//       section.correct = 0;
-//       section.wrong = 0;
-//       section.marksObtained = 0;
-//       section.timeTaken = "00:00";
-
-//       // ✅ Update existing section or push new
-//       const index = record.sections.findIndex(sec => sec.sectionName === section.sectionName);
-//       if (index >= 0) {
-//         record.sections[index] = { ...record.sections[index]._doc, ...section };
-//       } else {
-//         record.sections.push(section);
-//       }
-//     }
-
-//     // ✅ Recompute overall stats but force 0
-//     record.totalMarksObtained = 0;
-//     record.totalMarks = record.sections.reduce((sum, s) => sum + (s.totalMarks || 0), 0);
-//     record.totalCorrect = 0;
-//     record.totalWrong = 0;
-//     record.totalQuestions = record.sections.reduce((sum, s) => sum + (s.noOfquestions || 0), 0);
-//     record.totalTimeTaken = "00:00";
-
-//     // 🚨 FORCE STATUS TO CHEATED
-//     record.status = "cheated";
-//     record.completedAt = new Date();
-
-//     await record.save();
-
-//     res.json({
-//       status: true,
-//       message: "Sections saved successfully (cheated)",
-//       data: record
-//     });
-//   } catch (error) {
-//     console.error("Error in /cheated-sections:", error);
-//     res.json({ status: false, message: "Something went wrong" });
-//   }
-// });
-
-// ============================================================
-// SAVE / VERIFY EXAM SECTION
-// POST /exam-section/addSection
-// ============================================================
-
-// ============================================================
-// SAVE + VERIFY EXAM SECTION
-// POST /exam-section/addSection
-// ============================================================
-
-// =====================================================
-// NORMALIZE QUESTION TYPE
-// =====================================================
-
-function normalizeQuestionType(type) {
-    if (type === null || type === undefined) {
-        return "";
-    }
-
-    return String(type)
-        .trim()
-        .toUpperCase()
-        .replace(/[\s-]+/g, "_");
-}
-
-
-// ============================================================
-// NORMALIZE ANSWER
-// ============================================================
-
-function normalizeAnswer(value) {
-    return String(value ?? "")
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, " ");
-}
-
-
-// ============================================================
-// CHECK SINGLE CHOICE
-// ============================================================
-
-function checkSingleChoiceAnswer(
-    question,
-    userAnswer
-) {
-
-    const normalizedUserAnswer =
-        normalizeAnswer(userAnswer);
-
-
-    // Empty answer = skipped
-    if (!normalizedUserAnswer) {
-
-        return {
-            correct: false,
-            attempted: false,
-            obtainedMarks: 0,
-            userAnswer: userAnswer ?? "",
-            correctAnswer: null
-        };
-    }
-
-
-    // ========================================================
-    // FIND CORRECT ANSWER
-    // ========================================================
-
-    let correctAnswer = "";
-
-
-    // Preferred: correctAnswers
-    if (
-        Array.isArray(question.correctAnswers) &&
-        question.correctAnswers.length > 0
-    ) {
-
-        correctAnswer =
-            question.correctAnswers[0];
-
-    }
-
-    // Fallback: acceptedAnswers
-    else if (
-        Array.isArray(question.acceptedAnswers) &&
-        question.acceptedAnswers.length > 0
-    ) {
-
-        correctAnswer =
-            question.acceptedAnswers[0];
-
-    }
-
-    // Fallback: answer
-    else if (
-        question.answer !== undefined &&
-        question.answer !== null &&
-        String(question.answer).trim() !== ""
-    ) {
-
-        correctAnswer =
-            question.answer;
-    }
-
-
-    const normalizedCorrectAnswer =
-        normalizeAnswer(correctAnswer);
-
-
-    const correct =
-        normalizedUserAnswer !== "" &&
-        normalizedCorrectAnswer !== "" &&
-        normalizedUserAnswer ===
-            normalizedCorrectAnswer;
-
-
-    const marks =
-        Number(question.marks || 1);
-
-
-    return {
-
-        correct,
-
-        attempted: true,
-
-        userAnswer:
-            userAnswer,
-
-        correctAnswer:
-            correctAnswer,
-
-        normalizedUserAnswer:
-            normalizedUserAnswer,
-
-        normalizedCorrectAnswer:
-            normalizedCorrectAnswer,
-
-        obtainedMarks:
-            correct
-                ? marks
-                : 0
-    };
-}
-
-
-// ============================================================
-// CHECK FILL IN THE BLANK
-// ============================================================
-
-function checkFillBlankAnswer(
-    question,
-    userAnswer
-) {
-
-    const answers =
-        Array.isArray(userAnswer)
-            ? userAnswer
-            : [];
-
-
-    // ========================================================
-    // DATABASE ACCEPTED ANSWERS
-    // ========================================================
-
-    let acceptedAnswers = [];
-
-
-    if (
-        Array.isArray(question.acceptedAnswers) &&
-        question.acceptedAnswers.length > 0
-    ) {
-
-        acceptedAnswers =
-            question.acceptedAnswers;
-
-    }
-
-    else if (
-        Array.isArray(question.correctAnswers)
-    ) {
-
-        acceptedAnswers =
-            question.correctAnswers;
-    }
-
-
-    // ========================================================
-    // FIND NUMBER OF BLANKS
-    // ========================================================
-
-    const questionText =
-        String(question.questionText || "");
-
-
-    const blankMatches =
-        questionText.match(
-            /\[\[BLANK_\d+\]\]/g
-        ) || [];
-
-
-    const blankCount =
-        blankMatches.length;
-
-
-    const blankResults = [];
-
-    let attempted = false;
-
-    let allCorrect = true;
-
-
-    // ========================================================
-    // CHECK EACH BLANK
-    // ========================================================
-
-    for (
-        let i = 0;
-        i < blankCount;
-        i++
-    ) {
-
-        const blank =
-            `BLANK_${i + 1}`;
-
-
-        const rawUserAnswer =
-            answers[i] ?? "";
-
-
-        const normalizedUserAnswer =
-            normalizeAnswer(
-                rawUserAnswer
-            );
-
-
-        const rawAcceptedAnswer =
-            acceptedAnswers[i] ?? "";
-
-
-        const normalizedAcceptedAnswer =
-            normalizeAnswer(
-                rawAcceptedAnswer
-            );
-
-
-        // Any non-empty blank means attempted
-        if (
-            normalizedUserAnswer !== ""
-        ) {
-
-            attempted = true;
-        }
-
-
-        const correct =
-            normalizedUserAnswer !== "" &&
-            normalizedAcceptedAnswer !== "" &&
-            normalizedUserAnswer ===
-                normalizedAcceptedAnswer;
-
-
-        if (!correct) {
-
-            allCorrect = false;
-        }
-
-
-        blankResults.push({
-
-            blank,
-
-            userAnswer:
-                rawUserAnswer,
-
-            normalizedUserAnswer,
-
-            acceptedAnswers: [
-                rawAcceptedAnswer
-            ],
-
-            normalizedAcceptedAnswers: [
-                normalizedAcceptedAnswer
-            ],
-
-            correct
-
-        });
-    }
-
-
-    const marks =
-        Number(question.marks || 1);
-
-
-    return {
-
-        correct:
-            allCorrect,
-
-        attempted,
-
-        answers:
-            answers,
-
-        blankResults,
-
-        obtainedMarks:
-            allCorrect
-                ? marks
-                : 0
-
-    };
-}
-// ============================================================
-// EVALUATE QUESTION
-// ============================================================
-
-function evaluateQuestion(
-    question,
-    userAnswer
-) {
-
-    const questionType =
-        normalizeQuestionType(
-            question.questionType
-        );
-
-
-    // ========================================================
-    // FILL BLANK
-    // ========================================================
-
-    if (
-        questionType === "FILL_BLANK"
-    ) {
-
-        const result =
-            checkFillBlankAnswer(
-                question,
-                userAnswer
-            );
-
-
-        return {
-
-            questionType,
-
-            ...result
-
-        };
-    }
-
-
-    // ========================================================
-    // SINGLE CHOICE
-    // ========================================================
-
-    if (
-        questionType === "SINGLE_CHOICE" ||
-        questionType === "SINGLE_CHOICE_QUESTION" ||
-        questionType === "MCQ"
-    ) {
-
-        const result =
-            checkSingleChoiceAnswer(
-                question,
-                userAnswer
-            );
-
-
-        return {
-
-            questionType,
-
-            ...result
-
-        };
-    }
-
-
-    // ========================================================
-    // UNKNOWN QUESTION TYPE
-    // ========================================================
-
-    console.warn(
-        "UNSUPPORTED QUESTION TYPE:",
-        question.questionType
-    );
-
-
-    return {
-
-        questionType,
-
-        correct: false,
-
-        attempted:
-            Array.isArray(userAnswer)
-                ? userAnswer.length > 0
-                : normalizeAnswer(userAnswer) !== "",
-
-        obtainedMarks: 0
-
-    };
-}
-router.post("/addSection", async (req, res) => {
-    try {
-
-        const {
-            examName,
-            emailAddress,
-            fullName,
-            section,
-            status
-        } = req.body;
-
-
-        // ============================================================
-        // VALIDATION
-        // ============================================================
-
-        if (
-            !examName ||
-            !emailAddress ||
-            !fullName ||
-            !section ||
-            !section.sectionName
-        ) {
-            return res.status(400).json({
-                status: false,
-                message:
-                    "examName, emailAddress, fullName and section are required"
-            });
-        }
-
-
-        // ============================================================
-        // QUESTIONS FROM FRONTEND
-        // ============================================================
-
-        const questions =
-            Array.isArray(section.questions)
-                ? section.questions
-                : [];
-
-
-        const processedQuestions = [];
-
-
-        // ============================================================
-        // PROCESS EVERY QUESTION
-        // ============================================================
-
-        for (const attemptedQuestion of questions) {
-
-            const questionId =
-                attemptedQuestion.questionId;
-
-
-            // --------------------------------------------------------
-            // GET ORIGINAL QUESTION FROM DATABASE
-            // --------------------------------------------------------
-
-            const originalQuestion =
-                await Question.findById(questionId);
-
-
-            if (!originalQuestion) {
-
-                console.log(
-                    "QUESTION NOT FOUND:",
-                    questionId
-                );
-
-                continue;
-            }
-
-
-            // --------------------------------------------------------
-            // NORMALIZE QUESTION TYPE
-            // --------------------------------------------------------
-
-            const questionType =
-                normalizeQuestionType(
-                    originalQuestion.questionType
-                );
-
-
-            // --------------------------------------------------------
-            // USER ANSWER FROM FRONTEND
-            //
-            // SINGLE_CHOICE:
-            // "Option B"
-            //
-            // FILL_BLANK:
-            // ["the", "the", "during"]
-            // --------------------------------------------------------
-
-            const userAnswer =
-                attemptedQuestion.userAnswer;
-
-
-            console.log(
-                "=============================================="
-            );
-
-            console.log(
-                "QUESTION ID:",
-                questionId
-            );
-
-            console.log(
-                "QUESTION TYPE:",
-                questionType
-            );
-
-            console.log(
-                "FRONTEND USER ANSWER:",
-                JSON.stringify(
-                    userAnswer
-                )
-            );
-
-
-            // --------------------------------------------------------
-            // VERIFY ANSWER USING DATABASE
-            //
-            // evaluateQuestion() handles:
-            //
-            // SINGLE_CHOICE
-            // FILL_BLANK
-            // --------------------------------------------------------
-
-            const result =
-                evaluateQuestion(
-                    originalQuestion,
-                    userAnswer
-                );
-
-
-            console.log(
-                "QUESTION RESULT:",
-                JSON.stringify(
-                    result,
-                    null,
-                    2
-                )
-            );
-
-
-            // ========================================================
-            // DETERMINE QUESTION STATUS
-            // ========================================================
-
-            let questionStatus = "skipped";
-
-
-            if (result.correct) {
-
-                questionStatus = "correct";
-
-            }
-            else if (result.attempted) {
-
-                questionStatus = "wrong";
-
-            }
-            else {
-
-                questionStatus = "skipped";
-            }
-
-
-            // ========================================================
-            // PROCESSED QUESTION
-            // ========================================================
-
-            const processedQuestion = {
-
-                questionId:
-                    questionId,
-
-                userAnswer:
-                    userAnswer,
-
-                questionType:
-                    questionType,
-
-                status:
-                    questionStatus,
-
-                obtainedMarks:
-                    Number(
-                        result.obtainedMarks || 0
-                    )
-            };
-
-
-            // --------------------------------------------------------
-            // FILL BLANK EXTRA RESULT
-            // --------------------------------------------------------
-
-            if (
-                questionType === "FILL_BLANK"
-            ) {
-
-                processedQuestion.blankResults =
-                    result.blankResults || [];
-            }
-
-
-            // --------------------------------------------------------
-            // SINGLE CHOICE EXTRA RESULT
-            // --------------------------------------------------------
-
-            if (
-                questionType === "SINGLE_CHOICE" ||
-                questionType === "SINGLE_CHOICE_QUESTION" ||
-                questionType === "MCQ"
-            ) {
-
-                processedQuestion.correctAnswer =
-                    result.correctAnswer;
-            }
-
-
-            // --------------------------------------------------------
-            // ADD TO SECTION
-            // --------------------------------------------------------
-
-            processedQuestions.push(
-                processedQuestion
-            );
-        }
-
-
-        // ============================================================
-        // SECTION STATISTICS
-        // ============================================================
-
-        const attempted =
-            processedQuestions.filter(
-                question =>
-                    question.status !== "skipped"
-            ).length;
-
-
-        const correct =
-            processedQuestions.filter(
-                question =>
-                    question.status === "correct"
-            ).length;
-
-
-        const wrong =
-            processedQuestions.filter(
-                question =>
-                    question.status === "wrong"
-            ).length;
-
-
-        const skipped =
-            processedQuestions.filter(
-                question =>
-                    question.status === "skipped"
-            ).length;
-
-
-        const marksObtained =
-            processedQuestions.reduce(
-                (
-                    total,
-                    question
-                ) => {
-
-                    return (
-                        total +
-                        Number(
-                            question.obtainedMarks || 0
-                        )
-                    );
-
-                },
-                0
-            );
-
-
-        // ============================================================
-        // SECTION DATA
-        // ============================================================
-
-        const sectionData = {
-
-            sectionName:
-                section.sectionName,
-
-            totalDuration:
-                Number(
-                    section.totalDuration || 0
-                ),
-
-            totalMarks:
-                Number(
-                    section.totalMarks || 0
-                ),
-
-            noOfquestions:
-                Number(
-                    section.noOfquestions ||
-                    processedQuestions.length
-                ),
-
-            questions:
-                processedQuestions,
-
-            attempted,
-
-            correct,
-
-            wrong,
-
-            skipped,
-
-            marksObtained,
-
-            timeTaken:
-                section.timeTaken || "00:00"
-        };
-
-
-        // ============================================================
-        // FIND EXISTING EXAM SECTION DOCUMENT
-        // ============================================================
-
-        let examSection =
-            await ExamSection.findOne({
-                emailAddress,
-                examName
-            });
-
-
-        // ============================================================
-        // CREATE NEW EXAM SECTION DOCUMENT
-        // ============================================================
-
-        if (!examSection) {
-
-            examSection =
-                new ExamSection({
-
-                    emailAddress,
-
-                    fullName,
-
-                    examName,
-
-                    sections: [
-                        sectionData
-                    ],
-
-                    status:
-                        "in-progress",
-
-                    totalAttempted:
-                        attempted,
-
-                    totalCorrect:
-                        correct,
-
-                    totalWrong:
-                        wrong,
-
-                    totalMarksObtained:
-                        marksObtained,
-
-                    totalTimeTaken:
-                        section.timeTaken ||
-                        "00:00"
-                });
-        }
-
-
-        // ============================================================
-        // UPDATE EXISTING EXAM SECTION DOCUMENT
-        // ============================================================
-
-        else {
-
-            const existingIndex =
-                examSection.sections.findIndex(
-                    existingSection =>
-                        existingSection.sectionName ===
-                        section.sectionName
-                );
-
-
-            // --------------------------------------------------------
-            // UPDATE EXISTING SECTION
-            // --------------------------------------------------------
-
-            if (
-                existingIndex !== -1
-            ) {
-
-                examSection.sections[
-                    existingIndex
-                ] = sectionData;
-
-            }
-
-
-            // --------------------------------------------------------
-            // ADD NEW SECTION
-            // --------------------------------------------------------
-
-            else {
-
-                examSection.sections.push(
-                    sectionData
-                );
-            }
-
-
-            // ========================================================
-            // RECALCULATE TOTALS
-            // ========================================================
-
-            examSection.totalAttempted =
-                examSection.sections.reduce(
-                    (
-                        total,
-                        currentSection
-                    ) =>
-                        total +
-                        Number(
-                            currentSection.attempted ||
-                            0
-                        ),
-                    0
-                );
-
-
-            examSection.totalCorrect =
-                examSection.sections.reduce(
-                    (
-                        total,
-                        currentSection
-                    ) =>
-                        total +
-                        Number(
-                            currentSection.correct ||
-                            0
-                        ),
-                    0
-                );
-
-
-            examSection.totalWrong =
-                examSection.sections.reduce(
-                    (
-                        total,
-                        currentSection
-                    ) =>
-                        total +
-                        Number(
-                            currentSection.wrong ||
-                            0
-                        ),
-                    0
-                );
-
-
-            examSection.totalMarksObtained =
-                examSection.sections.reduce(
-                    (
-                        total,
-                        currentSection
-                    ) =>
-                        total +
-                        Number(
-                            currentSection.marksObtained ||
-                            0
-                        ),
-                    0
-                );
-
-
-            examSection.totalTimeTaken =
-                examSection.sections
-                    .map(
-                        currentSection =>
-                            currentSection.timeTaken ||
-                            "00:00"
-                    )
-                    .join(" + ");
-        }
-
-
-        // ============================================================
-        // EXAM COMPLETION
-        //
-        // Frontend sends:
-        //
-        // status: "completed"
-        //
-        // for the last section.
-        // ============================================================
-
-        const normalizedStatus =
-            String(status || "")
-                .trim()
-                .toLowerCase();
-
-
-        if (
-            normalizedStatus === "completed"
-        ) {
-
-            examSection.status =
-                "completed";
-
-
-            examSection.completedAt =
-                new Date();
-
-
-            console.log(
-                "=============================================="
-            );
-
-            console.log(
-                "EXAM COMPLETED"
-            );
-
-            console.log(
-                "Exam Name:",
-                examName
-            );
-
-            console.log(
-                "Student:",
-                emailAddress
-            );
-
-            console.log(
-                "Status:",
-                examSection.status
-            );
-
-            console.log(
-                "Completed At:",
-                examSection.completedAt
-            );
-
-            console.log(
-                "=============================================="
-            );
-        }
-
-        else {
-
-            examSection.status =
-                "in-progress";
-        }
-
-
-        // ============================================================
-        // SAVE TO DATABASE
-        // ============================================================
-
-        await examSection.save();
-
-
-        console.log(
-            "SECTION SAVED SUCCESSFULLY"
-        );
-
-
-        console.log(
-            "FINAL EXAM STATUS:",
-            examSection.status
-        );
-
-
-        // ============================================================
-        // RESPONSE
-        // ============================================================
-
-        return res.status(200).json({
-
-            status: true,
-
-            message:
-                examSection.status === "completed"
-                    ? "Exam completed and section saved successfully"
-                    : "Section saved and answers verified successfully",
-
-            examCompleted:
-                examSection.status === "completed",
-
-            data: {
-
-                section:
-                    sectionData,
-
-                totalAttempted:
-                    examSection.totalAttempted,
-
-                totalCorrect:
-                    examSection.totalCorrect,
-
-                totalWrong:
-                    examSection.totalWrong,
-
-                totalMarksObtained:
-                    examSection.totalMarksObtained,
-
-                examStatus:
-                    examSection.status,
-
-                completedAt:
-                    examSection.completedAt || null
-            }
-        });
-
-
-    }
-    catch (error) {
-
-        console.error(
-            "ADD SECTION ERROR:",
-            error
-        );
-
-
-        return res.status(500).json({
-
-            status: false,
-
-            message:
-                "Failed to save section",
-
-            error:
-                error.message
-        });
-    }
-});
-
-
-
-// 📌 Start Exam Route
 router.post('/startExam', async (req, res) => {
   try {
     const { examName, emailAddress, fullName } = req.body;
-
     if (!examName || !emailAddress || !fullName) {
       return res.json({ status: false, message: "examName, emailAddress, fullName required" });
     }
 
-    // Check if exam already started
     let record = await ExamSection.findOne({ examName, emailAddress, fullName });
 
     if (!record) {
-      // New exam attempt
       record = new ExamSection({
         examName,
         emailAddress,
         fullName,
         status: "in-progress",
-        startedAt: new Date(), // set when exam starts
+        startedAt: new Date()
       });
     } else if (!record.startedAt) {
-      // Exam exists but no startedAt → set it
       record.startedAt = new Date();
       record.status = "in-progress";
     }
 
     await record.save();
-
     res.json({ status: true, message: "Exam started successfully", data: record });
   } catch (error) {
     console.error("Error in /startExam:", error);
@@ -1616,48 +1306,60 @@ router.post('/startExam', async (req, res) => {
   }
 });
 
-router.get('/exam-result-summary', async (req, res) => {
-  const { emailAddress } = req.query;
-
-  if (!emailAddress) {
-    return res.json({ status: false, message: "emailAddress is required" });
-  }
-
+router.post("/exam-result-summary", async (req, res) => {
   try {
-    const tests = await ExamSection.find({ emailAddress }).sort({ createdAt: -1 });;
-
-    if (!tests || tests.length === 0) {
-      return res.json({ status: true, message: "No records found", data: [] });
+    const { examName, emailAddress } = req.body;
+    if (!examName || !emailAddress) {
+      return res.status(400).json({ status: false, message: "examName and emailAddress are required." });
     }
 
-    const results = tests.map(test => {
-      let totalMarks = 0;
-      let marksReceived = 0;
+    const record = await ExamSection.findOne({ examName, emailAddress }).lean();
+    if (!record) return res.json({ status: false, message: "No exam record found." });
 
-      (test.sections || []).forEach(section => {
-        const sectionMarks = section.totalMarks || 0;
-        const correct = (section.questions || []).filter(q => q.status === 'correct').length;
+    const summary = (record.sections || []).map(section => ({
+      sectionName: section.sectionName,
+      totalCorrect: Number(section.correct || 0),
+      totalWrong: Number(section.wrong || 0),
+      totalSkipped: Number(section.skipped || 0),
+      totalAttempted: Number(section.attempted || 0),
+      timeTaken: section.timeTaken,
+      marksObtained: Number(section.marksObtained || 0),
+      totalMarks: Number(section.totalMarks || 0),
+      noOfquestions: Number(section.noOfquestions || 0)
+    }));
 
-        totalMarks += sectionMarks;
-        marksReceived += correct;
-      });
+    const totalMarks = summary.reduce((sum, sec) => sum + sec.totalMarks, 0);
+    const totalMarksObtained = summary.reduce((sum, sec) => sum + sec.marksObtained, 0);
+    const totalCorrect = summary.reduce((sum, sec) => sum + sec.totalCorrect, 0);
+    const totalWrong = summary.reduce((sum, sec) => sum + sec.totalWrong, 0);
+    const totalSkipped = summary.reduce((sum, sec) => sum + sec.totalSkipped, 0);
+    const totalQuestions = summary.reduce((sum, sec) => sum + sec.noOfquestions, 0);
+    const totalAttempted = summary.reduce((sum, sec) => sum + sec.totalAttempted, 0);
+    const totalTimeTaken = summary.reduce((total, sec) => addTimes(total, sec.timeTaken || "00:00:00"), "00:00:00");
 
-      const percentage = totalMarks > 0
-        ? `${((marksReceived / totalMarks) * 100).toFixed(2)}%`
-        : "0.00%";
+    const percentage = totalMarks > 0 ? Number(((totalMarksObtained / totalMarks) * 100).toFixed(2)) : 0;
 
-      return {
-        examName: test.examName,
-        percentage,
-        status: getStatusFromPercentage(percentage)
-      };
+    return res.json({
+      status: true,
+      message: "Result summary fetched successfully.",
+      data: {
+        examName: record.examName,
+        totalMarks: Number(totalMarks.toFixed(2)),
+        totalMarksObtained: Number(totalMarksObtained.toFixed(2)),
+        percentage: `${percentage}%`,
+        totalQuestions,
+        totalAttempted,
+        totalCorrect,
+        totalWrong,
+        totalSkipped,
+        totalTimeTaken,
+        status: record.status,
+        sections: summary
+      }
     });
-
-    res.json({ status: true, data: results });
-
-  } catch (err) {
-    console.error(err);
-    res.json({ status: false, message: "Server error" });
+  } catch (error) {
+    console.error("EXAM RESULT SUMMARY ERROR:", error);
+    return res.status(500).json({ status: false, message: "Failed to fetch exam result." });
   }
 });
 
@@ -1681,12 +1383,10 @@ router.get('/stats', async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching dashboard stats:', err);
-    res.json({
-      status: false,
-      message: 'Server error while fetching dashboard statistics.'
-    });
+    res.json({ status: false, message: 'Server error while fetching dashboard statistics.' });
   }
 });
+
 router.post('/exam-stats', async (req, res) => {
   try {
     const { examName } = req.body;
@@ -1751,25 +1451,15 @@ router.post('/exam/section-questions', async (req, res) => {
 
   try {
     const questions = await Question.aggregate([
-      {
-        $match: { subjectName, chapterName }
-      },
-      {
-        $sample: { size: sampleSize }
-      },
-      {
-        $project: {
-          questionText: 1,
-          options: 1,
-          answer: 1
-        }
-      }
+      { $match: { subjectName, chapterName } },
+      { $sample: { size: sampleSize } },
+      { $project: { questionText: 1, options: 1, answer: 1 } }
     ]);
 
     const formattedQuestions = questions.map(({ questionText, options, answer }) => ({
       questionText,
       options,
-      answer: Buffer.from(answer).toString('base64'),
+      answer: Buffer.from(answer || '').toString('base64'),
       userAnswer: ''
     }));
 
@@ -1784,42 +1474,27 @@ router.post('/exam/section-questions', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error fetching questions:', error);
-    res.status(500).json({
-      status: false,
-      message: 'Internal Server Error'
-    });
+    res.status(500).json({ status: false, message: 'Internal Server Error' });
   }
 });
 
-// 2. Get records by examName
 router.get('/examName/:examName', async (req, res) => {
   try {
     const { examName } = req.params;
-
-    // Fetch all records for given examName
-    const records = await ExamSection.find({ examName}).lean();
+    const records = await ExamSection.find({ examName }).lean();
 
     if (!records || records.length === 0) {
-      return res.json({
-        status: true,          // keep true so frontend doesn’t treat it as error
-        progressCount: 0,
-        completedCount: 0,
-        avgPercentile: 0,
-        data: []
-      });
+      return res.json({ status: true, progressCount: 0, completedCount: 0, avgPercentile: 0, data: [] });
     }
 
-    // Calculate status counts
     const progressCount = records.filter(r => r.status === "in-progress").length;
     const completedCount = records.filter(r => r.status === "completed").length;
 
-    // Find max possible marks for the exam
     let maxMarks = 0;
     if (records[0].sections && records[0].sections.length > 0) {
       maxMarks = records[0].sections.reduce((sum, sec) => sum + (sec.totalMarks || 0), 0);
     }
 
-    // Calculate average percentile (only for completed attempts)
     let totalPercentile = 0;
     let completedWithMarks = 0;
 
@@ -1833,14 +1508,7 @@ router.get('/examName/:examName', async (req, res) => {
 
     const avgPercentile = completedWithMarks > 0 ? (totalPercentile / completedWithMarks).toFixed(2) : 0;
 
-    res.json({
-      status: true,
-      progressCount,
-      completedCount,
-      avgPercentile,
-      data: records
-    });
-
+    res.json({ status: true, progressCount, completedCount, avgPercentile, data: records });
   } catch (error) {
     console.error(error);
     res.json({ status: false, error: error.message });
@@ -1848,175 +1516,1079 @@ router.get('/examName/:examName', async (req, res) => {
 });
 
 router.get('/exam-report/:examName', async (req, res) => {
-  try {
+    try {
 
-    const { examName } = req.params;
+        const { examName } = req.params;
 
-    // Get Exam
-    const exam = await Exams.findOne({ examName }).lean();
 
-    if (!exam) {
-      return res.json({
-        status: false,
-        message: "Exam not found"
-      });
-    }
+        // ============================================================
+        // GET EXAM
+        // ============================================================
 
-    // Get Category
-    const category = await Category.findOne({
-      categoryName: exam.category
-    }).lean();
+        const exam =
+            await Exams
+                .findOne({ examName })
+                .lean();
 
-    if (!category) {
-      return res.json({
-        status: false,
-        message: "Category not found"
-      });
-    }
 
-    // Get all enrolled students
-    const students = await Student.find({
-      "basic.courseName.courseName": category.courseName,
-      "basic.active":true
-    }).lean();
+        if (!exam) {
+            return res.json({
+                status: false,
+                message: "Exam not found"
+            });
+        }
 
-    // Get all exam attempts
-    const attempts = await ExamSection.find({ examName }).lean();
 
-    // Create set of attempted emails
-    const attemptedEmails = new Set(
-      attempts.map(x => x.emailAddress)
-    );
+        // ============================================================
+        // GET CATEGORY
+        // ============================================================
 
-    // Start with attempted students
-    const finalData = [...attempts];
+        const category =
+            await Category
+                .findOne({
+                    categoryName: exam.category
+                })
+                .lean();
 
-    // Add absent students
-    students.forEach(student => {
 
-      const email = student.basic.emailAddress;
+        if (!category) {
+            return res.json({
+                status: false,
+                message: "Category not found"
+            });
+        }
 
-      if (!attemptedEmails.has(email)) {
 
-        finalData.push({
-          fullName: `${student.basic.firstName} ${student.basic.lastName}`,
-          emailAddress: email,
-          mobileNo: student.basic.mobileNo,
-          examName,
-          status: "not started",
-          attendance: "Absent",
-          totalCorrect: 0,
-          totalWrong: 0,
-          totalMarksObtained: 0,
-          totalTimeTaken: "-",
-          startedAt: null,
-          completedAt: null
+        // ============================================================
+        // GET ACTIVE STUDENTS
+        // ============================================================
+
+        const students =
+            await Student
+                .find({
+                    "basic.courseName.courseName":
+                        category.courseName,
+
+                    "basic.active":
+                        true
+                })
+                .lean();
+
+
+        // ============================================================
+        // GET ALL ATTEMPTS
+        // ============================================================
+
+        const attempts =
+            await ExamSection
+                .find({
+                    examName
+                })
+                .lean();
+
+
+        // ============================================================
+        // EMAILS OF STUDENTS WHO ATTEMPTED
+        // ============================================================
+
+        const attemptedEmails =
+            new Set(
+                attempts.map(
+                    attempt =>
+                        attempt.emailAddress
+                )
+            );
+
+
+        // ============================================================
+        // PROCESS ATTEMPTS
+        // ============================================================
+
+        const finalData =
+            attempts.map(
+                attempt => {
+
+                    // ====================================================
+                    // COPY ORIGINAL ATTEMPT
+                    // ====================================================
+
+                    const data = {
+                        ...attempt
+                    };
+
+
+                    // ====================================================
+                    // SECTIONS FROM ATTEMPT
+                    // ====================================================
+
+                    const attemptSections =
+                        Array.isArray(
+                            attempt.sections
+                        )
+                            ? attempt.sections
+                            : [];
+
+
+                    // ====================================================
+                    // EXAM TOTALS
+                    // ====================================================
+
+                    let totalCorrect = 0;
+
+                    let totalWrong = 0;
+
+                    let totalSkipped = 0;
+
+                    let totalAttempted = 0;
+
+                    let totalMarksObtained = 0;
+
+                    let totalMaximumMarks = 0;
+
+
+                    // ====================================================
+                    // CALCULATE EACH SECTION
+                    // ====================================================
+
+                    const calculatedSections =
+                        attemptSections.map(
+                            section => {
+
+                                // ========================================
+                                // SECTION NAME
+                                // ========================================
+
+                                const sectionName =
+                                    String(
+                                        section?.sectionName ||
+                                        ""
+                                    )
+                                        .trim()
+                                        .toLowerCase();
+
+
+                                // ========================================
+                                // CHECK CODING SECTION
+                                // ========================================
+
+                                const isCodingSection =
+                                    sectionName === "coding" ||
+                                    sectionName.includes("coding");
+
+
+                                // ========================================
+                                // CODING RULE
+                                //
+                                // Every coding question = 15 marks.
+                                //
+                                // Other questions = 1 mark.
+                                // ========================================
+
+                                const marksPerQuestion =
+                                    isCodingSection
+                                        ? 15
+                                        : 1;
+
+
+                                // ========================================
+                                // QUESTION ARRAY
+                                // ========================================
+
+                                const questions =
+                                    Array.isArray(
+                                        section?.questions
+                                    )
+                                        ? section.questions
+                                        : [];
+
+
+                                // ========================================
+                                // IF QUESTIONS ARE AVAILABLE
+                                //
+                                // Calculate directly from question
+                                // statuses.
+                                // ========================================
+
+                                let sectionCorrect = 0;
+
+                                let sectionWrong = 0;
+
+                                let sectionSkipped = 0;
+
+                                let sectionAttempted = 0;
+
+                                let sectionMarksObtained = 0;
+
+
+                                if (
+                                    questions.length > 0
+                                ) {
+
+                                    questions.forEach(
+                                        question => {
+
+                                            const status =
+                                                String(
+                                                    question?.status ||
+                                                    ""
+                                                )
+                                                    .trim()
+                                                    .toLowerCase();
+
+
+                                            // =================================
+                                            // CORRECT
+                                            // =================================
+
+                                            if (
+                                                status ===
+                                                "correct"
+                                            ) {
+
+                                                sectionCorrect++;
+
+                                                sectionAttempted++;
+
+                                                sectionMarksObtained +=
+                                                    marksPerQuestion;
+
+                                            }
+
+
+                                            // =================================
+                                            // WRONG / PARTIAL
+                                            // =================================
+
+                                            else if (
+                                                status ===
+                                                    "wrong" ||
+
+                                                status ===
+                                                    "partial"
+                                            ) {
+
+                                                sectionWrong++;
+
+                                                sectionAttempted++;
+
+
+                                                // =================================
+                                                // CODING PARTIAL MARKS
+                                                //
+                                                // For coding:
+                                                //
+                                                // DO NOT simply use question
+                                                // obtainedMarks because older
+                                                // records may contain values
+                                                // such as 1.5.
+                                                //
+                                                // Calculate from hidden tests.
+                                                // =================================
+
+                                                if (
+                                                    isCodingSection
+                                                ) {
+
+                                                    const codingResult =
+                                                        question?.codingResult ||
+                                                        {};
+
+
+                                                    const hiddenResults =
+                                                        Array.isArray(
+                                                            codingResult
+                                                                ?.hiddenTestResults
+                                                        )
+                                                            ? codingResult.hiddenTestResults
+                                                            : [];
+
+
+                                                    // ---------------------------------
+                                                    // COUNT PASSED HIDDEN TESTS
+                                                    // ---------------------------------
+
+                                                    let passedTests = 0;
+
+
+                                                    hiddenResults.forEach(
+                                                        result => {
+
+                                                            const statusDesc =
+                                                                typeof result?.status ===
+                                                                "object"
+                                                                    ? String(
+                                                                        result?.status
+                                                                            ?.description ||
+                                                                        ""
+                                                                    )
+                                                                    : String(
+                                                                        result?.status ||
+                                                                        ""
+                                                                    );
+
+
+                                                            const verdict =
+                                                                String(
+                                                                    result?.verdict ||
+                                                                    ""
+                                                                )
+                                                                    .trim()
+                                                                    .toUpperCase();
+
+
+                                                            const passed =
+                                                                result?.passed === true ||
+
+                                                                result?.passed === "true" ||
+
+                                                                result?.isPassed === true ||
+
+                                                                result?.success === true ||
+
+                                                                statusDesc
+                                                                    .toLowerCase() ===
+                                                                    "passed" ||
+
+                                                                statusDesc
+                                                                    .toLowerCase() ===
+                                                                    "accepted" ||
+
+                                                                verdict ===
+                                                                    "ACCEPTED" ||
+
+                                                                verdict ===
+                                                                    "PASSED" ||
+
+                                                                result?.statusId ===
+                                                                    3 ||
+
+                                                                result?.status?.id ===
+                                                                    3;
+
+
+                                                            if (
+                                                                passed
+                                                            ) {
+                                                                passedTests++;
+                                                            }
+
+                                                        }
+                                                    );
+
+
+                                                    // ---------------------------------
+                                                    // TOTAL HIDDEN TESTS
+                                                    // ---------------------------------
+
+                                                    const totalHiddenTests =
+                                                        hiddenResults.length;
+
+
+                                                    // ---------------------------------
+                                                    // CODING QUESTION MARKS
+                                                    //
+                                                    // 15 / hidden tests
+                                                    // ---------------------------------
+
+                                                    if (
+                                                        totalHiddenTests >
+                                                        0
+                                                    ) {
+
+                                                        const marksPerHiddenTest =
+                                                            15 /
+                                                            totalHiddenTests;
+
+
+                                                        sectionMarksObtained +=
+                                                            Number(
+                                                                (
+                                                                    marksPerHiddenTest *
+                                                                    passedTests
+                                                                ).toFixed(2)
+                                                            );
+
+                                                    }
+
+                                                }
+
+                                                else {
+
+                                                    // =================================
+                                                    // NORMAL QUESTION
+                                                    //
+                                                    // Wrong = 0 marks
+                                                    // =================================
+
+                                                    sectionMarksObtained +=
+                                                        0;
+
+                                                }
+
+                                            }
+
+
+                                            // =================================
+                                            // SKIPPED
+                                            // =================================
+
+                                            else if (
+                                                status ===
+                                                "skipped"
+                                            ) {
+
+                                                sectionSkipped++;
+
+                                            }
+
+                                        }
+                                    );
+
+                                }
+
+                                else {
+
+                                    // =================================================
+                                    // FALLBACK FOR OLD RECORDS
+                                    //
+                                    // If question details are unavailable,
+                                    // use stored section values.
+                                    // =================================================
+
+                                    sectionCorrect =
+                                        Number(
+                                            section?.correct ||
+                                            0
+                                        );
+
+
+                                    sectionWrong =
+                                        Number(
+                                            section?.wrong ||
+                                            0
+                                        );
+
+
+                                    sectionSkipped =
+                                        Number(
+                                            section?.skipped ||
+                                            0
+                                        );
+
+
+                                    sectionAttempted =
+                                        Number(
+                                            section?.attempted ||
+                                            0
+                                        );
+
+
+                                    if (
+                                        isCodingSection
+                                    ) {
+
+                                        /*
+                                         * Every fully correct coding question
+                                         * gets 15 marks.
+                                         *
+                                         * For old records where question
+                                         * details are unavailable, calculate
+                                         * using correct-question count.
+                                         */
+                                        sectionMarksObtained =
+                                            Number(
+                                                (
+                                                    sectionCorrect *
+                                                    15
+                                                ).toFixed(2)
+                                            );
+
+                                    }
+
+                                    else {
+
+                                        sectionMarksObtained =
+                                            Number(
+                                                (
+                                                    sectionCorrect *
+                                                    1
+                                                ).toFixed(2)
+                                            );
+
+                                    }
+
+                                }
+
+
+                                // ====================================================
+                                // ATTEMPTED
+                                // ====================================================
+
+                                if (
+                                    questions.length > 0
+                                ) {
+
+                                    sectionAttempted =
+                                        sectionCorrect +
+                                        sectionWrong;
+
+                                }
+
+
+                                // ====================================================
+                                // SECTION TOTAL MARKS
+                                //
+                                // Coding:
+                                //
+                                // noOfQuestions × 15
+                                //
+                                // Other:
+                                //
+                                // noOfQuestions × 1
+                                // ====================================================
+
+                                const numberOfQuestions =
+                                    Number(
+                                        section?.noOfquestions ??
+                                        questions.length ??
+                                        0
+                                    );
+
+
+                                const sectionTotalMarks =
+                                    numberOfQuestions *
+                                    marksPerQuestion;
+
+
+                                // ====================================================
+                                // ADD TO EXAM TOTALS
+                                // ====================================================
+
+                                totalCorrect +=
+                                    sectionCorrect;
+
+
+                                totalWrong +=
+                                    sectionWrong;
+
+
+                                totalSkipped +=
+                                    sectionSkipped;
+
+
+                                totalAttempted +=
+                                    sectionAttempted;
+
+
+                                totalMarksObtained +=
+                                    sectionMarksObtained;
+
+
+                                totalMaximumMarks +=
+                                    sectionTotalMarks;
+
+
+                                // ====================================================
+                                // RETURN UPDATED SECTION
+                                // ====================================================
+
+                                return {
+
+                                    ...section,
+
+                                    correct:
+                                        sectionCorrect,
+
+                                    wrong:
+                                        sectionWrong,
+
+                                    skipped:
+                                        sectionSkipped,
+
+                                    attempted:
+                                        sectionAttempted,
+
+                                    marksObtained:
+                                        Number(
+                                            sectionMarksObtained.toFixed(2)
+                                        ),
+
+                                    totalMarks:
+                                        sectionTotalMarks,
+
+                                    isCodingSection,
+
+                                    marksPerQuestion
+
+                                };
+
+                            }
+                        );
+
+
+                    // ============================================================
+                    // SET FINAL EXAM VALUES
+                    // ============================================================
+
+                    data.sections =
+                        calculatedSections;
+
+
+                    data.totalCorrect =
+                        totalCorrect;
+
+
+                    data.totalWrong =
+                        totalWrong;
+
+
+                    data.totalSkipped =
+                        totalSkipped;
+
+
+                    data.totalAttempted =
+                        totalAttempted;
+
+
+                    data.totalMarks =
+                        totalMaximumMarks;
+
+
+                    data.totalMarksObtained =
+                        Number(
+                            totalMarksObtained.toFixed(2)
+                        );
+
+
+                    return data;
+
+                }
+            );
+
+
+        // ============================================================
+        // ADD ABSENT STUDENTS
+        // ============================================================
+
+        students.forEach(
+            student => {
+
+                const email =
+                    student
+                        ?.basic
+                        ?.emailAddress;
+
+
+                if (
+                    !attemptedEmails.has(
+                        email
+                    )
+                ) {
+
+                    finalData.push({
+
+                        fullName:
+                            `${student.basic.firstName} ${student.basic.lastName}`,
+
+                        emailAddress:
+                            email,
+
+                        mobileNo:
+                            student.basic.mobileNo,
+
+                        examName,
+
+                        status:
+                            "not started",
+
+                        attendance:
+                            "Absent",
+
+                        totalQuestions:
+                            Number(
+                                exam.totalQuestions ||
+                                0
+                            ),
+
+                        totalAttempted:
+                            0,
+
+                        totalCorrect:
+                            0,
+
+                        totalWrong:
+                            0,
+
+                        totalSkipped:
+                            0,
+
+                        totalMarks:
+                            Number(
+                                exam.totalMarks ||
+                                0
+                            ),
+
+                        totalMarksObtained:
+                            0,
+
+                        totalTimeTaken:
+                            "-",
+
+                        startedAt:
+                            null,
+
+                        completedAt:
+                            null
+
+                    });
+
+                }
+
+            }
+        );
+
+
+        // ============================================================
+        // COUNTS
+        // ============================================================
+
+        const progressCount =
+            finalData.filter(
+                student =>
+                    student.status ===
+                    "in-progress"
+            ).length;
+
+
+        const completedCount =
+            finalData.filter(
+                student =>
+                    student.status ===
+                    "completed"
+            ).length;
+
+
+        const absentCount =
+            finalData.filter(
+                student =>
+                    student.status ===
+                    "not started"
+            ).length;
+
+
+        const cheatedCount =
+            finalData.filter(
+                student =>
+                    student.status ===
+                    "cheated"
+            ).length;
+
+
+        const attemptedCount =
+            completedCount +
+            progressCount +
+            cheatedCount;
+
+
+        // ============================================================
+        // CALCULATE MAXIMUM MARKS
+        //
+        // Use exam sections.
+        //
+        // Coding section = questions × 15
+        // Other section  = questions × 1
+        // ============================================================
+
+        let maxMarks = 0;
+
+
+        if (
+            Array.isArray(
+                exam.sections
+            ) &&
+            exam.sections.length > 0
+        ) {
+
+            exam.sections.forEach(
+                section => {
+
+                    const sectionName =
+                        String(
+                            section?.sectionName ||
+                            ""
+                        )
+                            .trim()
+                            .toLowerCase();
+
+
+                    const isCodingSection =
+                        sectionName === "coding" ||
+                        sectionName.includes("coding");
+
+
+                    const numberOfQuestions =
+                        Number(
+                            section?.chapters
+                                ?.reduce(
+                                    (
+                                        sum,
+                                        chapter
+                                    ) =>
+                                        sum +
+                                        Number(
+                                            chapter?.noOfquestions ||
+                                            0
+                                        ),
+                                    0
+                                ) ||
+                            0
+                        );
+
+
+                    /*
+                     * If chapter question count is not available,
+                     * use section totalMarks.
+                     */
+                    const questionCount =
+                        numberOfQuestions > 0
+                            ? numberOfQuestions
+                            : Number(
+                                section?.totalMarks ||
+                                0
+                            );
+
+
+                    if (
+                        isCodingSection
+                    ) {
+
+                        maxMarks +=
+                            questionCount *
+                            15;
+
+                    }
+
+                    else {
+
+                        maxMarks +=
+                            questionCount *
+                            1;
+
+                    }
+
+                }
+            );
+
+        }
+
+        else {
+
+            /*
+             * Fallback.
+             */
+            maxMarks =
+                Number(
+                    exam.totalMarks ||
+                    0
+                );
+
+        }
+
+
+        // ============================================================
+        // ATTEMPTED STUDENTS
+        // ============================================================
+
+        const attemptedStudents =
+            finalData.filter(
+                student =>
+
+                    student.status ===
+                        "completed" ||
+
+                    student.status ===
+                        "in-progress" ||
+
+                    student.status ===
+                        "cheated"
+            );
+
+
+        // ============================================================
+        // AVERAGE PERCENTAGE
+        // ============================================================
+
+        let avgPercentile = 0;
+
+
+        if (
+            attemptedStudents.length > 0 &&
+            maxMarks > 0
+        ) {
+
+            const totalPercentile =
+                attemptedStudents.reduce(
+                    (
+                        sum,
+                        student
+                    ) => {
+
+                        const obtainedMarks =
+                            Number(
+                                student.totalMarksObtained ||
+                                0
+                            );
+
+
+                        const percentage =
+                            (
+                                obtainedMarks /
+                                maxMarks
+                            ) *
+                            100;
+
+
+                        return (
+                            sum +
+                            percentage
+                        );
+
+                    },
+                    0
+                );
+
+
+            avgPercentile =
+                (
+                    totalPercentile /
+                    attemptedStudents.length
+                ).toFixed(2);
+
+        }
+
+
+        // ============================================================
+        // ATTENDANCE PERCENTAGE
+        // ============================================================
+
+        const attendancePercentage =
+            finalData.length > 0
+                ? (
+                    (
+                        attemptedCount /
+                        finalData.length
+                    ) *
+                    100
+                ).toFixed(2)
+                : 0;
+
+
+        // ============================================================
+        // DEBUG
+        // ============================================================
+
+        console.log(
+            "\n========== EXAM REPORT =========="
+        );
+
+        console.log(
+            "Exam:",
+            examName
+        );
+
+        console.log(
+            "Maximum Marks:",
+            maxMarks
+        );
+
+        console.log(
+            "Attempted:",
+            attemptedCount
+        );
+
+        console.log(
+            "Absent:",
+            absentCount
+        );
+
+        console.log(
+            "Completed:",
+            completedCount
+        );
+
+        console.log(
+            "Average Percentage:",
+            avgPercentile
+        );
+
+        console.log(
+            "=================================\n"
+        );
+
+
+        // ============================================================
+        // FINAL RESPONSE
+        // ============================================================
+
+        return res.json({
+
+            status:
+                true,
+
+            totalStudents:
+                finalData.length,
+
+            attemptedCount,
+
+            absentCount,
+
+            progressCount,
+
+            completedCount,
+
+            cheatedCount,
+
+            attendancePercentage,
+
+            avgPercentile,
+
+            maxMarks,
+
+            data:
+                finalData
+
         });
-      }
-    });
 
-    // Counts
-    const progressCount = finalData.filter(
-      x => x.status === "in-progress"
-    ).length;
 
-    const completedCount = finalData.filter(
-      x => x.status === "completed"
-    ).length;
+    } catch (error) {
 
-    const absentCount = finalData.filter(
-      x => x.status === "not started"
-    ).length;
+        console.error(
+            "EXAM REPORT ERROR:",
+            error
+        );
 
-    const cheatedCount = finalData.filter(
-      x => x.status === "cheated"
-    ).length;
 
-    const attemptedCount =
-      completedCount +
-      progressCount +
-      cheatedCount;
+        return res.json({
 
-    // Average Percentile
-    const maxMarks = Number(exam.totalMarks || 0);
+            status:
+                false,
 
-    const attemptedStudents = finalData.filter(
-      x =>
-        x.status === "completed" ||
-        x.status === "in-progress" ||
-        x.status === "cheated"
-    );
+            error:
+                error.message
 
-    let avgPercentile = 0;
+        });
 
-    if (attemptedStudents.length > 0 && maxMarks > 0) {
-
-      const totalPercentile = attemptedStudents.reduce(
-        (sum, student) => {
-
-          const obtainedMarks = Number(
-            student.totalMarksObtained || 0
-          );
-
-          const percentile =
-            (obtainedMarks / maxMarks) * 100;
-
-          return sum + percentile;
-
-        },
-        0
-      );
-
-      avgPercentile = (
-        totalPercentile /
-        attemptedStudents.length
-      ).toFixed(2);
     }
-
-    // Attendance Percentage
-    const attendancePercentage =
-      finalData.length > 0
-        ? (
-            (attemptedCount / finalData.length) *
-            100
-          ).toFixed(2)
-        : 0;
-
-    res.json({
-      status: true,
-      totalStudents: finalData.length,
-      attemptedCount,
-      absentCount,
-      progressCount,
-      completedCount,
-      cheatedCount,
-      attendancePercentage,
-      avgPercentile,
-      data: finalData
-    });
-
-  } catch (error) {
-
-    console.error(error);
-
-    res.json({
-      status: false,
-      error: error.message
-    });
-
-  }
 });
 
 router.delete('/exam-reaccess/:examName/:emailAddress', async (req, res) => {
   try {
     const { examName, emailAddress } = req.params;
-
     if (!examName || !emailAddress) {
       return res.json({ status: false, message: "examName and emailAddress are required" });
     }
 
     const deletedRecord = await ExamSection.findOneAndDelete({ examName, emailAddress });
-
     if (!deletedRecord) {
       return res.json({ status: false, message: "No record found to delete" });
     }
@@ -2028,23 +2600,22 @@ router.delete('/exam-reaccess/:examName/:emailAddress', async (req, res) => {
   }
 });
 
-
 router.get('/result-by-user/:examName/:emailAddress', async (req, res) => {
   try {
-    const { examName,emailAddress } = req.params;
-    const records = await ExamSection.find({ examName, emailAddress }).lean();
-    res.json({status:true,message:records});
+    const { examName, emailAddress } = req.params;
+    const records = await ExamSection.find({ examName, emailAddress })
+      .populate('sections.questions.questionId')
+      .lean();
+    res.json({ status: true, message: records });
   } catch (error) {
-    console.log(error)
-    res.status(500).json({ error: error.message });
+    console.error(error);
+    res.status(500).json({ status: false, error: error.message });
   }
 });
 
-// 3. Get records by emailAddress and fullName (query params)
 router.get('/user', async (req, res) => {
   try {
     const { emailAddress, fullName } = req.query;
-
     if (!emailAddress || !fullName) {
       return res.status(400).json({ error: 'emailAddress and fullName are required' });
     }
@@ -2056,275 +2627,20 @@ router.get('/user', async (req, res) => {
   }
 });
 
-router.post('/addSection1', async (req, res) => {
-  try {
-    const { examName, emailAddress, fullName, section, status } = req.body;
-
-    if (!examName || !emailAddress || !fullName || !section) {
-      return res.json({
-        status: false,
-        message: "examName, emailAddress, fullName, section required"
-      });
-    }
-
-    const questions = Array.isArray(section.questions)
-      ? section.questions
-      : [];
-
-    const attempted = questions.filter(q => q.userAnswer).length;
-    const correct = questions.filter(q => q.status === "correct").length;
-    const wrong = questions.filter(q => q.status === "wrong").length;
-
-    const marksObtained =
-      section.noOfquestions > 0
-        ? Number(
-            ((correct / section.noOfquestions) * section.totalMarks).toFixed(2)
-          )
-        : 0;
-
-    section.attempted = attempted;
-    section.correct = correct;
-    section.wrong = wrong;
-    section.marksObtained = marksObtained;
-
-    let record = await ExamSection.findOneAndUpdate(
-      {
-        examName,
-        emailAddress,
-        fullName,
-        "sections.sectionName": section.sectionName
-      },
-      {
-        $set: {
-          "sections.$": section
-        }
-      },
-      { new: true }
-    );
-
-    if (!record) {
-      record = await ExamSection.findOneAndUpdate(
-        { examName, emailAddress, fullName },
-        {
-          $push: { sections: section },
-          $setOnInsert: {
-            startedAt: new Date(),
-            status: "in-progress"
-          }
-        },
-        {
-          new: true,
-          upsert: true
-        }
-      );
-    }
-
-    let totalAttempted = 0;
-    let totalCorrect = 0;
-    let totalWrong = 0;
-    let totalMarksObtained = 0;
-    let totalTimeTaken = "00:00";
-
-    record.sections.forEach(sec => {
-      totalAttempted += sec.attempted || 0;
-      totalCorrect += sec.correct || 0;
-      totalWrong += sec.wrong || 0;
-      totalMarksObtained += sec.marksObtained || 0;
-      totalTimeTaken = addTimes(
-        totalTimeTaken,
-        sec.timeTaken || "00:00"
-      );
-    });
-
-    await ExamSection.updateOne(
-      { _id: record._id },
-      {
-        $set: {
-          totalAttempted,
-          totalCorrect,
-          totalWrong,
-          totalMarksObtained,
-          totalTimeTaken,
-          ...(status && {
-            status,
-            completedAt:
-              status === "completed"
-                ? new Date()
-                : undefined
-          })
-        }
-      }
-    );
-
-    res.json({
-      status: true,
-      message: "Section saved successfully",
-      data: record
-    });
-
-  } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
-      status: false,
-      message: "Server error"
-    });
-  }
-});
-
-router.get('/exam-attempted1', async (req, res) => {
-  try {
-
-    const { emailAddress } = req.query;
-
-    const records = await ExamSection.find({
-      emailAddress
-    })
-    .populate('sections.questions.questionId')
-    .lean();
-
-    res.json({
-      status: true,
-      records
-    });
-
-  } catch (error) {
-
-    console.error(error);
-
-    res.status(500).json({
-      status: false
-    });
-
-  }
-});
-
-router.get('/exam-result-summary1', async (req, res) => {
-
-  try {
-
-    const { emailAddress } = req.query;
-
-    const tests = await ExamSection.find({
-      emailAddress
-    }).lean();
-
-    const results = tests.map(test => {
-
-      const totalMarks = test.sections.reduce(
-        (sum, sec) => sum + sec.totalMarks,
-        0
-      );
-
-      const percentage =
-        totalMarks > 0
-          ? (
-              (test.totalMarksObtained / totalMarks) *
-              100
-            ).toFixed(2) + "%"
-          : "0.00%";
-
-      return {
-        examName: test.examName,
-        percentage,
-        status: getStatusFromPercentage(percentage)
-      };
-
-    });
-
-    res.json({
-      status: true,
-      data: results
-    });
-
-  } catch (error) {
-
-    console.error(error);
-
-    res.status(500).json({
-      status: false
-    });
-
-  }
-
-});
-
-router.get('/result-by-user1/:examName/:emailAddress',async (req, res) => {
-
-    try {
-
-      const {
-        examName,
-        emailAddress
-      } = req.params;
-
-      const records = await ExamSection.find({
-        examName,
-        emailAddress
-      })
-      .populate('sections.questions.questionId')
-      .lean();
-
-      res.json({
-        status: true,
-        message: records
-      });
-
-    } catch (error) {
-
-      console.error(error);
-
-      res.status(500).json({
-        status: false
-      });
-
-    }
-
-  }
-);
-
 router.post('/checkResume', async (req, res) => {
   try {
-
-    const {
-      examName,
-      emailAddress
-    } = req.body;
-
+    const { examName, emailAddress } = req.body;
     if (!examName || !emailAddress) {
-      return res.json({
-        status: false,
-        message: "examName and emailAddress are required"
-      });
+      return res.json({ status: false, message: "examName and emailAddress are required" });
     }
 
-    const record = await ExamSection.findOne({
-      examName,
-      emailAddress
-    }).lean();
-
-    if (!record) {
-      return res.json({
-        status: true,
-        resumeAvailable: false
-      });
+    const record = await ExamSection.findOne({ examName, emailAddress }).lean();
+    if (!record || record.status === "completed" || record.status === "cheated") {
+      return res.json({ status: true, resumeAvailable: false });
     }
 
-    if (
-      record.status === "completed" ||
-      record.status === "cheated"
-    ) {
-      return res.json({
-        status: true,
-        resumeAvailable: false
-      });
-    }
-
-    const lastSectionIndex =
-      Math.max((record.sections?.length || 1) - 1, 0);
-
-    const lastSection =
-      record.sections?.[lastSectionIndex];
+    const lastSectionIndex = Math.max((record.sections?.length || 1) - 1, 0);
+    const lastSection = record.sections?.[lastSectionIndex];
 
     return res.json({
       status: true,
@@ -2336,21 +2652,13 @@ router.post('/checkResume', async (req, res) => {
         status: record.status,
         activeSectionIndex: lastSectionIndex,
         activeQuestionIndex: 0,
-        sectionName:
-          lastSection?.sectionName || "",
+        sectionName: lastSection?.sectionName || "",
         startedAt: record.startedAt
       }
     });
-
   } catch (error) {
-
     console.error(error);
-
-    res.json({
-      status: false,
-      message: "Something went wrong"
-    });
-
+    res.json({ status: false, message: "Something went wrong" });
   }
 });
 
