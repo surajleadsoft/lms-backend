@@ -16,10 +16,45 @@ const Student = require('../models/Student');
  * Normalizes question type strings into standardized uppercase formats.
  */
 function normalizeQuestionType(type) {
-  return String(type || "")
+  const value = String(type || "")
     .trim()
     .toUpperCase()
     .replace(/[\s-]+/g, "_");
+
+  if (
+    value === "CODING" ||
+    value === "CODE" ||
+    value === "CODING_QUESTION"
+  ) {
+    return "CODING";
+  }
+
+  if (
+    value === "FILL" ||
+    value === "FILL_BLANK" ||
+    value === "FILL_IN_BLANK" ||
+    value === "FILL_IN_THE_BLANK"
+  ) {
+    return "FILL_BLANK";
+  }
+
+  if (
+    value === "MULTIPLE" ||
+    value === "MULTIPLE_CHOICE" ||
+    value === "MULTI_CHOICE" ||
+    value === "MCQ_MULTIPLE"
+  ) {
+    return "MULTIPLE_CHOICE";
+  }
+
+  if (
+    value === "TRUE_FALSE" ||
+    value === "TRUE_FALSE_QUESTION"
+  ) {
+    return "TRUE_FALSE";
+  }
+
+  return "SINGLE_CHOICE";
 }
 
 /**
@@ -792,28 +827,28 @@ function calculateCodingMarks(question, codingSubmission) {
 function evaluateQuestion(question, userAnswer, codingSubmission = null) {
   if (!question) throw new Error("Question data is required");
 
-  const type = normalizeQuestionType(question.questionType);
+  // Fallback to SINGLE_CHOICE if questionType is undefined or empty
+  const rawType = question.questionType || "SINGLE_CHOICE";
+  const type = normalizeQuestionType(rawType);
 
   switch (type) {
     case "SINGLE_CHOICE":
-    case "SINGLE_CHOICE_QUESTION":
-    case "MCQ":
       return evaluateSingleChoice(question, userAnswer);
+
     case "TRUE_FALSE":
-    case "TRUE_FALSE_QUESTION":
       return evaluateTrueFalse(question, userAnswer);
+
     case "MULTIPLE_CHOICE":
-    case "MULTIPLE_CHOICE_QUESTION":
-    case "MULTI_CHOICE":
       return evaluateMultipleChoice(question, userAnswer);
+
     case "FILL_BLANK":
-    case "FILL_IN_THE_BLANK":
-    case "FILL":
       return evaluateFillBlank(question, userAnswer);
+
     case "CODING":
       return calculateCodingMarks(question, codingSubmission);
+
     default:
-      throw new Error(`Unsupported question type: ${question.questionType}`);
+      return evaluateSingleChoice(question, userAnswer);
   }
 }
 
