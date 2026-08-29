@@ -102,6 +102,9 @@ function extractOptionValue(option) {
 /**
  * Extracts options array out of primitive arrays or dynamic key-value option objects.
  */
+/**
+ * Extracts options array out of primitive arrays or dynamic key-value option objects (A, B, C, D or option1, option2...).
+ */
 function getOptions(question) {
   const options = question?.options;
   if (!options) return [];
@@ -109,48 +112,103 @@ function getOptions(question) {
   if (Array.isArray(options)) {
     return options.map((option, index) => ({
       key: `option${index + 1}`,
+      letterKey: String.fromCharCode(65 + index),
       index,
       value: extractOptionValue(option)
     }));
   }
 
   if (typeof options === "object") {
-    return Object.entries(options)
-      .filter(([key]) => /^option\d+$/i.test(key))
-      .sort(([a], [b]) => parseInt(a.replace(/\D/g, ""), 10) - parseInt(b.replace(/\D/g, ""), 10))
-      .map(([key, value], index) => ({
-        key,
-        index,
-        value: extractOptionValue(value)
-      }));
+    const entries = Object.entries(options);
+
+    // Check if options object is keyed with "option1", "option2"
+    const hasOptionKeys = entries.some(([key]) => /^option\d+$/i.test(key));
+
+    if (hasOptionKeys) {
+      return entries
+        .filter(([key]) => /^option\d+$/i.test(key))
+        .sort(([a], [b]) => parseInt(a.replace(/\D/g, ""), 10) - parseInt(b.replace(/\D/g, ""), 10))
+        .map(([key, value], index) => ({
+          key,
+          letterKey: String.fromCharCode(65 + index),
+          index,
+          value: extractOptionValue(value)
+        }));
+    }
+
+    // Handles map/object keyed with "A", "B", "C", "D" or direct option labels
+    return entries.map(([key, value], index) => ({
+      key,
+      letterKey: String(key).trim().toUpperCase(),
+      index,
+      value: extractOptionValue(value)
+    }));
   }
 
   return [];
 }
 
 /**
- * Resolves option references ("A", "option1", raw option text) to the target string.
+ * Resolves option references ("A", "option1", option text, or HTML strings) to normalized string values.
  */
 function resolveSingleChoice(question, answer) {
   const submitted = normalizeAnswer(answer);
   if (!submitted) return null;
 
   const options = getOptions(question);
+  
   for (const option of options) {
     const value = normalizeAnswer(option.value);
     const key = normalizeAnswer(option.key);
-    const letter = String.fromCharCode(65 + option.index).toLowerCase();
+    const letterKey = normalizeAnswer(option.letterKey);
+    const indexLetter = String.fromCharCode(65 + option.index).toLowerCase();
 
-    if (submitted === value || submitted === key || submitted === letter) {
+    if (
+      submitted === value ||
+      submitted === key ||
+      submitted === letterKey ||
+      submitted === indexLetter
+    ) {
       return option.value.trim();
     }
   }
-  return null;
+
+  // Fallback: If no option map matched, return original raw string value
+  return extractOptionValue(answer).trim();
 }
 
 /**
- * Adds time strings in HH:MM:SS or MM:SS format.
+ * Evaluates single choice questions accurately without crashing on unmapped option keys.
  */
+function evaluateSingleChoice(question, userAnswer) {
+  if (isEmptyAnswer(userAnswer)) {
+    return {
+      status: "skipped",
+      attempted: false,
+      correct: false,
+      obtainedMarks: 0,
+      userAnswer: null,
+      correctAnswer: question.answer ?? null
+    };
+  }
+
+  const resolvedUserAnswer = resolveSingleChoice(question, userAnswer);
+  const resolvedCorrectAnswer = resolveSingleChoice(question, question.answer);
+  
+  const finalUserAnswer = resolvedUserAnswer !== null ? resolvedUserAnswer : extractOptionValue(userAnswer);
+  const finalCorrectAnswer = resolvedCorrectAnswer !== null ? resolvedCorrectAnswer : extractOptionValue(question.answer);
+
+  const correct = normalizeAnswer(finalUserAnswer) === normalizeAnswer(finalCorrectAnswer);
+
+  return {
+    status: correct ? "correct" : "wrong",
+    attempted: true,
+    correct,
+    obtainedMarks: correct ? Number(question.marks || 1) : 0,
+    userAnswer: finalUserAnswer,
+    correctAnswer: finalCorrectAnswer
+  };
+}
 function addTimes(t1 = "00:00:00", t2 = "00:00:00") {
   const parse = (t) => {
     const parts = String(t).split(':').map(Number);
@@ -176,29 +234,7 @@ function addTimes(t1 = "00:00:00", t2 = "00:00:00") {
 // QUESTION EVALUATORS
 // ============================================================
 
-function evaluateSingleChoice(question, userAnswer) {
-  if (isEmptyAnswer(userAnswer)) {
-    return { status: "skipped", attempted: false, correct: false, obtainedMarks: 0, userAnswer: null, correctAnswer: question.answer ?? null };
-  }
 
-  const resolvedUserAnswer = resolveSingleChoice(question, userAnswer);
-  if (resolvedUserAnswer === null) {
-    throw new Error(`Invalid option selected for question ${question._id}`);
-  }
-
-  const resolvedCorrectAnswer = resolveSingleChoice(question, question.answer);
-  const finalCorrectAnswer = resolvedCorrectAnswer !== null ? resolvedCorrectAnswer : String(question.answer ?? "");
-  const correct = normalizeAnswer(resolvedUserAnswer) === normalizeAnswer(finalCorrectAnswer);
-
-  return {
-    status: correct ? "correct" : "wrong",
-    attempted: true,
-    correct,
-    obtainedMarks: correct ? Number(question.marks || 0) : 0,
-    userAnswer: resolvedUserAnswer,
-    correctAnswer: finalCorrectAnswer
-  };
-}
 
 function evaluateTrueFalse(question, userAnswer) {
   if (isEmptyAnswer(userAnswer)) {
