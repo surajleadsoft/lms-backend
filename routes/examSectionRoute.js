@@ -209,6 +209,10 @@ function evaluateSingleChoice(question, userAnswer) {
     correctAnswer: finalCorrectAnswer
   };
 }
+const getStatusFromPercentage = (percentString) => {
+  const percent = parseFloat(percentString.replace('%', ''));
+  return percent >= 70 ? 'passed' : 'failed';
+};
 function addTimes(t1 = "00:00:00", t2 = "00:00:00") {
   const parse = (t) => {
     const parts = String(t).split(':').map(Number);
@@ -1434,6 +1438,51 @@ router.post("/exam-result-summary", async (req, res) => {
   }
 });
 
+
+router.get('/exam-result-summary', async (req, res) => {
+  const { emailAddress } = req.query;
+
+  if (!emailAddress) {
+    return res.json({ status: false, message: "emailAddress is required" });
+  }
+
+  try {
+    const tests = await ExamSection.find({ emailAddress }).sort({ createdAt: -1 });;
+
+    if (!tests || tests.length === 0) {
+      return res.json({ status: true, message: "No records found", data: [] });
+    }
+
+    const results = tests.map(test => {
+      let totalMarks = 0;
+      let marksReceived = 0;
+
+      (test.sections || []).forEach(section => {
+        const sectionMarks = section.totalMarks || 0;
+        const correct = (section.questions || []).filter(q => q.status === 'correct').length;
+
+        totalMarks += sectionMarks;
+        marksReceived += correct;
+      });
+
+      const percentage = totalMarks > 0
+        ? `${((marksReceived / totalMarks) * 100).toFixed(2)}%`
+        : "0.00%";
+
+      return {
+        examName: test.examName,
+        percentage,
+        status: getStatusFromPercentage(percentage)
+      };
+    });
+
+    res.json({ status: true, data: results });
+
+  } catch (err) {
+    console.error(err);
+    res.json({ status: false, message: "Server error" });
+  }
+});
 router.get('/stats', async (req, res) => {
   try {
     const [examCount, questionCount, categoryCount, attemptCount] = await Promise.all([
